@@ -55,7 +55,7 @@ function displayBanner() {
 // Initialize chat session
 async function initializeChat() {
   try {
-    model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
     chat = model.startChat({
       history: conversationHistory,
       generationConfig: {

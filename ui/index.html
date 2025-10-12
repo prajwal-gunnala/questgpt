@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quest GPT - AI Powered Automation Installer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Welcome Modal -->
+  <div class="modal" id="welcome-modal" onclick="event.stopPropagation()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <img src="../assets/logo.png" alt="Quest GPT Logo" class="welcome-logo" onerror="console.error('Welcome logo failed'); this.style.display='none';">
+      <div class="logo-ascii">
+        ╔═══════════════════════════════╗<br>
+        ║   QUEST GPT                   ║<br>
+        ║   AI Powered Installer        ║<br>
+        ╚═══════════════════════════════╝
+      </div>
+      <h2>Welcome to Quest GPT</h2>
+      <p>Your sassy AI-powered automation installer. Here's how it works:</p>
+      <ol style="line-height: 2; margin: 2rem 0;">
+        <li><strong>Tell me what you need</strong> - Type anything like "pandas" or "web dev stack"</li>
+        <li><strong>Pick your poison</strong> - Select what you actually want to install</li>
+        <li><strong>Learn while I work</strong> - Answer MCQs and learn what you're installing</li>
+      </ol>
+      <p style="font-size: 0.9rem; color: var(--text-secondary);">No boring terminal output. Just knowledge and working software.</p>
+      <button class="btn btn-primary" onclick="closeWelcome()">Let's Go</button>
+    </div>
+  </div>
+
+  <div class="app-container">
+    <!-- Header with Logo -->
+    <header class="header">
+      <div class="logo-section">
+        <img src="../assets/logo.png" alt="Quest GPT" class="header-logo" onerror="console.error('Logo failed to load'); this.style.display='none';">
+        <div>
+          <h1 class="app-title">Quest GPT</h1>
+          <span style="font-size: 0.85rem; opacity: 0.7;">AI Powered Automation Installer</span>
+        </div>
+      </div>
+      <div class="system-info" id="system-info">
+        <span class="loading">Detecting system...</span>
+      </div>
+    </header>
+
+    <!-- Progress Indicator -->
+    <div class="progress-indicator">
+      <div class="progress-step active" data-step="1">
+        <div class="step-number">01</div>
+        <div class="step-label">Search</div>
+      </div>
+      <div class="progress-line"></div>
+      <div class="progress-step" data-step="2">
+        <div class="step-number">02</div>
+        <div class="step-label">Select</div>
+      </div>
+      <div class="progress-line"></div>
+      <div class="progress-step" data-step="3">
+        <div class="step-number">03</div>
+        <div class="step-label">Install & Learn</div>
+      </div>
+      <div class="progress-line"></div>
+      <div class="progress-step" data-step="4">
+        <div class="step-number">04</div>
+        <div class="step-label">Done</div>
+      </div>
+    </div>
+
+    <!-- Main Content - Scrolling Form -->
+    <main class="main-content">
+      <!-- Section 1: Search -->
+      <section class="step-section" id="step-1">
+        <h2 class="step-title">01. What do you need?</h2>
+        <p style="margin-bottom: 2rem; color: var(--text-secondary);">Tell me what software or stack you want. I'll figure out the rest.</p>
+        <div class="search-box">
+          <input 
+            type="text" 
+            id="search-input" 
+            placeholder="e.g., pandas, docker, full stack..." 
+            class="search-input"
+          >
+          <button id="search-btn" class="btn btn-primary">Analyze</button>
+        </div>
+      </section>
+
+      <!-- Section 2: Selection -->
+      <section class="step-section hidden" id="step-2">
+        <h2 class="step-title">02. Pick what you want</h2>
+        <p style="margin-bottom: 2rem; color: var(--text-secondary);">Click to select dependencies. Selected items will be highlighted.</p>
+        
+        <!-- Stack Options (shown when multiple stack choices available) -->
+        <div id="stack-options-container" class="stack-options-container hidden">
+          <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">Choose Your Stack:</h3>
+          <div id="stack-options-grid" class="stack-options-grid"></div>
+          <div style="margin: 2rem 0; padding: 1rem; background: var(--bg-card); border-left: 3px solid var(--primary);">
+            <p style="font-size: 0.9rem; color: var(--text-secondary);">Or select individual packages below ↓</p>
+          </div>
+        </div>
+        
+        <div id="dependencies-grid" class="dependencies-grid"></div>
+        <div class="action-bar">
+          <button id="back-btn" class="btn btn-secondary">← Back</button>
+          <button id="install-btn" class="btn btn-primary" disabled>Select Something</button>
+        </div>
+      </section>
+
+      <!-- Section 3: Install & Learn -->
+      <section class="step-section hidden" id="step-3">
+        <h2 class="step-title">03. Installing & Learning</h2>
+        
+        <!-- Sassy Intro Box -->
+        <div class="sassy-intro-box">
+          <h3>Sit back, relax, and test your knowledge 😎</h3>
+          <p>We're handling everything - terminal commands, sudo passwords, PATH setup, error fixing. You just answer questions and look smart.</p>
+          <p style="font-size: 0.85rem; opacity: 0.8; margin-top: 0.5rem;">No manual config. No googling errors. We got this.</p>
+        </div>
+        
+        <div class="split-view">
+          <!-- Left Side: Terminal -->
+          <div class="terminal-section">
+            <div class="terminal-header">
+              <span>● ● ●</span>
+              <span>Terminal Output</span>
+            </div>
+            <div class="terminal-body" id="terminal-output">
+              <div class="terminal-line">Quest GPT Installer v1.0</div>
+              <div class="terminal-line">Ready to install...</div>
+            </div>
+            <div class="terminal-input-area" id="terminal-input-area" style="display: none;">
+              <span class="terminal-prompt">$</span>
+              <input type="password" id="terminal-input" class="terminal-input" placeholder="Enter sudo password...">
+              <button id="terminal-submit" class="terminal-submit-btn">Submit</button>
+            </div>
+          </div>
+          
+          <!-- Right Side: Questions -->
+          <div class="questions-section">
+            <div id="mcq-section" class="mcq-content">
+              <p>Generating questions...</p>
+            </div>
+            <div id="progress-section" class="progress-text"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 4: Done -->
+      <section class="step-section hidden" id="step-4">
+        <h2 class="step-title">✓ Done!</h2>
+        <div id="verification-results" class="verification-results"></div>
+        <div class="action-bar">
+          <button id="new-search-btn" class="btn btn-primary">Install More Stuff</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Quest GPT • Built with AI, sass, and minimal design • Linux Edition</p>
+    </footer>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

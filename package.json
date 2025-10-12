@@ -1,29 +1,85 @@
 {
-  "name": "gemini-terminal-chatbot",
+  "name": "questgpt-installer",
   "version": "1.0.0",
-  "description": "Terminal-based chatbot powered by Google Gemini AI with QuestGPT theme",
-  "main": "chatbot.js",
+  "description": "AI-powered installation wizard using Google Gemini AI - Terminal & Desktop App",
+  "main": "electron-main.js",
   "scripts": {
-    "start": "node chatbot.js",
-    "chat": "node chatbot.js"
+    "start": "node wizard.js",
+    "wizard": "node wizard.js",
+    "chat": "node chatbot.js",
+    "app": "electron .",
+    "build": "electron-builder",
+    "build:linux": "electron-builder --linux",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:all": "electron-builder -mwl"
+  },
+  "build": {
+    "appId": "com.questgpt.installer",
+    "productName": "QuestGPT",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron-main.js",
+      "ui/**/*",
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*",
+      ".env"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "assets/logo.png",
+      "synopsis": "AI-Powered Installation Wizard",
+      "description": "QuestGPT - Intelligent package installer with educational quizzes powered by Google Gemini AI"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/logo.png"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/logo.png",
+      "category": "public.app-category.developer-tools"
+    }
   },
   "keywords": [
-    "chatbot",
+    "installer",
     "gemini",
     "ai",
     "terminal",
-    "cli"
+    "cli",
+    "desktop",
+    "electron"
   ],
-  "author": "QuestGPT Team",
+  "author": {
+    "name": "QuestGPT Team",
+    "email": "prajwal@questgpt.com"
+  },
   "license": "MIT",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "boxen": "^8.0.1",
-    "chalk": "^5.6.2",
+    "boxen": "^5.1.2",
+    "chalk": "^4.1.2",
     "dotenv": "^17.2.3",
-    "figlet": "^1.9.3",
-    "gradient-string": "^3.0.0",
-    "inquirer": "^12.9.6",
-    "ora": "^9.0.0"
+    "figlet": "^1.7.0",
+    "gradient-string": "^2.0.2",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.9.1"
   }
 }
