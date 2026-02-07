@@ -7,6 +7,11 @@ const GeminiInstaller = require('./src/gemini-installer');
 const Installer = require('./src/installer');
 const Verifier = require('./src/verifier');
 
+// New modules
+const CommandClassifier = require('./src/command-classifier');
+const ErrorAnalyzer = require('./src/error-analyzer');
+const Uninstaller = require('./src/uninstaller');
+
 let mainWindow;
 
 function createWindow() {
@@ -43,12 +48,71 @@ const systemDetector = new SystemDetector();
 const geminiInstaller = new GeminiInstaller();
 const installer = new Installer();
 const verifier = new Verifier();
+const commandClassifier = new CommandClassifier();
+const errorAnalyzer = new ErrorAnalyzer();
+const uninstaller = new Uninstaller();
 
 // Detect system
 ipcMain.handle('detect-system', async () => {
   return systemDetector.getSystemInfo();
 });
 
+// Classify commands by risk level before installation
+ipcMain.handle('classify-commands', async (event, dependencies) => {
+  return commandClassifier.classifyAll(dependencies);
+});
+
+// Analyze installation error with AI
+ipcMain.handle('analyze-error', async (event, errorContext) => {
+  return await errorAnalyzer.analyzeError(errorContext);
+});
+
+// Check for environment conflicts
+ipcMain.handle('check-conflicts', async (event, dependencies) => {
+  const conflicts = [];
+  const names = dependencies.map(d => (d.name || '').toLowerCase());
+
+  // Python 2 vs Python 3
+  if (names.includes('python') || names.includes('python2') || names.includes('python3')) {
+    try {
+      const py2 = await verifier.verifyInstallation({ name: 'python2', verify_command: 'python2 --version' });
+      const py3 = await verifier.verifyInstallation({ name: 'python3', verify_command: 'python3 --version' });
+      if (py2.success && py3.success) {
+        conflicts.push({
+          type: 'warning',
+          title: 'Python 2 & 3 coexist',
+          message: 'Both Python 2 and Python 3 are installed. Make sure your PATH points to the correct version.',
+          deps: ['python2', 'python3']
+        });
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // Node.js via nvm vs system apt
+  if (names.includes('nodejs') || names.includes('node.js') || names.includes('node')) {
+    try {
+      const nvmNode = await verifier.verifyInstallation({ name: 'nvm-node', verify_command: 'bash -c "source ~/.nvm/nvm.sh 2>/dev/null && nvm current"' });
+      const aptNode = await verifier.verifyInstallation({ name: 'apt-node', verify_command: '/usr/bin/node --version' });
+      if (nvmNode.success && aptNode.success) {
+        conflicts.push({
+          type: 'warning',
+          title: 'Multiple Node.js installations',
+          message: 'Node.js found via both NVM and system package manager. This can cause PATH conflicts.',
+          deps: ['nodejs']
+        });
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  return conflicts;
+});
+
+// Generate uninstall plan
+ipcMain.handle('generate-uninstall-plan', async (event, installedPackages, systemInfo) => {
+  return await uninstaller.generateUninstallPlan(installedPackages, systemInfo);
+});
+
+// 
 // Analyze request
 ipcMain.handle('analyze-request', async (event, userRequest, systemInfo) => {
   return await geminiInstaller.analyzeRequest(userRequest, systemInfo);

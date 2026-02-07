@@ -16,7 +16,7 @@ class Installer {
   /**
    * Execute a single command with real-time output streaming
    */
-  async executeCommand(command, onOutput = null) {
+  async executeCommand(command, onOutput = null, sudoPassword = null) {
     return new Promise((resolve, reject) => {
       console.log(chalk.cyan(`\n🔧 Executing: ${command}\n`));
       
@@ -32,7 +32,13 @@ class Installer {
         });
       }
 
-      const child = exec(command, { maxBuffer: 1024 * 1024 * 10 });
+      // If command needs sudo and we have password, pipe it
+      let finalCommand = command;
+      if (sudoPassword && command.includes('sudo')) {
+        finalCommand = `echo '${sudoPassword}' | sudo -S ${command.replace(/^sudo\s+/, '')}`;
+      }
+
+      const child = exec(finalCommand, { maxBuffer: 1024 * 1024 * 10 });
 
       let stdout = '';
       let stderr = '';
@@ -108,7 +114,7 @@ class Installer {
   /**
    * Execute multiple commands in sequence
    */
-  async executeCommands(commands, onProgress = null) {
+  async executeCommands(commands, onProgress = null, sudoPassword = null) {
     const results = [];
     const total = commands.length;
 
@@ -135,7 +141,7 @@ class Installer {
               type: output.type
             });
           }
-        });
+        }, sudoPassword);
 
         results.push({
           command,
@@ -194,7 +200,7 @@ class Installer {
             });
           }
         }
-      });
+      }, sudoPassword);
 
       const allSuccess = results.every(r => r.success);
 

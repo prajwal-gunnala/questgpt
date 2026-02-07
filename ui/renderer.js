@@ -9,6 +9,10 @@ let score = 0;
 let allQuestions = [];
 let sudoPassword = null;
 let questionInterval = null;
+let currentMode = 'full'; // 'essential' or 'full'
+let pendingInstallDeps = null; // deps waiting for safety confirmation
+let installedPackagesHistory = []; // track what we installed this session
+let selectedForUninstall = new Set(); // packages selected for uninstall
 
 window.closeWelcome = function() {
   document.getElementById('welcome-modal').style.display = 'none';
@@ -140,7 +144,26 @@ async function handleSearch() {
       document.getElementById('stack-options-container').classList.add('hidden');
     }
     
+    // Show mode toggle if dependencies have priority values
+    const hasPriorities = analysisResult.dependencies.some(d => d.priority && d.priority > 1);
+    const toggleBar = document.getElementById('mode-toggle-bar');
+    if (hasPriorities && analysisResult.dependencies.length > 2) {
+      toggleBar.style.display = 'flex';
+      currentMode = 'full';
+      document.getElementById('mode-full').classList.add('active');
+      document.getElementById('mode-essential').classList.remove('active');
+    } else {
+      toggleBar.style.display = 'none';
+    }
+
     displayDependencies(analysisResult.dependencies);
+
+    // Check for environment conflicts
+    try {
+      const conflicts = await ipcRenderer.invoke('check-conflicts', analysisResult.dependencies);
+      displayConflicts(conflicts);
+    } catch (e) { /* ignore conflict check failures */ }
+
     showStep(2);
   } catch (error) {
     alert('Failed: ' + error.message);
@@ -222,7 +245,12 @@ function updateDependencyCardsSelection() {
 async function displayDependencies(dependencies) {
   dependenciesGrid.innerHTML = '';
 
-  for (const dep of dependencies) {
+  // Filter by mode: essential = priority 1 only, full = all
+  const filtered = currentMode === 'essential'
+    ? dependencies.filter(d => !d.priority || d.priority === 1)
+    : dependencies;
+
+  for (const dep of filtered) {
     // Check actual installation status for all packages
     const isInstalled = await ipcRenderer.invoke('check-installed', dep);
     
@@ -240,6 +268,17 @@ async function displayDependencies(dependencies) {
       `<img src="${dep.logo_url}" alt="${dep.name}" class="dependency-logo" onerror="this.style.display='none'">` : 
       `<div class="dependency-emoji">📦</div>`;
     
+    // Build status badge with version
+    let statusBadgeHtml = '';
+    if (isInstalled.success) {
+      const versionText = isInstalled.actual && isInstalled.actual !== 'Not installed' 
+        ? `<div class="version-text">${isInstalled.actual}</div>` 
+        : '';
+      statusBadgeHtml = `<span class="status-badge">✓ Installed</span>${versionText}`;
+    } else {
+      statusBadgeHtml = '<span class="status-badge-empty">Click to select</span>';
+    }
+
     card.innerHTML = `
       <div class="dependency-header">
         ${logoHtml}
@@ -250,19 +289,27 @@ async function displayDependencies(dependencies) {
       <p class="dependency-description">${dep.description || ''}</p>
       <div class="dependency-meta">
         <span class="meta-tag">${dep.category || 'package'}</span>
-        ${isInstalled.success ? '<span class="status-badge">✓ Installed</span>' : '<span class="status-badge-empty">Click to select</span>'}
+        ${dep.priority === 1 ? '<span class="meta-tag priority-essential">Essential</span>' : ''}
+        ${statusBadgeHtml}
       </div>
     `;
 
+    // Different click behavior for installed vs not installed
     if (!isInstalled.success) {
+      // Not installed - select for installation
       card.style.cursor = 'pointer';
       card.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleDependency(dep, card);
       });
     } else {
-      card.style.opacity = '0.5';
-      card.style.cursor = 'not-allowed';
+      // Already installed - can select for uninstall
+      card.style.cursor = 'pointer';
+      card.style.opacity = '0.7';
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleUninstallSelection(dep, card);
+      });
     }
 
     dependenciesGrid.appendChild(card);
@@ -282,19 +329,225 @@ function toggleDependency(dep, card) {
     selectedDependencies.add(dep.name);
     card.classList.add('selected');
   }
+  
   updateInstallButton();
 }
+
+function toggleUninstallSelection(dep, card) {
+  if (selectedForUninstall.has(dep.name)) {
+    selectedForUninstall.delete(dep.name);
+    card.classList.remove('selected-uninstall');
+    card.style.opacity = '0.7';
+  } else {
+    selectedForUninstall.add(dep.name);
+    card.classList.add('selected-uninstall');
+    card.style.opacity = '1';
+  }
+  updateInstallButton();
+}
+
+window.uninstallSelected = async function() {
+  const packagesToUninstall = analysisResult.dependencies.filter(dep => 
+    selectedForUninstall.has(dep.name)
+  );
+
+  if (packagesToUninstall.length === 0) return;
+
+  // Confirmation
+  if (!confirm(`⚠️ Are you sure you want to uninstall ${packagesToUninstall.length} package(s)?\n\n${packagesToUninstall.map(p => p.display_name || p.name).join(', ')}\n\nThis action cannot be undone.`)) {
+    return;
+  }
+
+  // Show loading modal
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.style.display = 'flex';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>🤖 Asking Gemini AI...</h2>
+      <p>Generating safe uninstall commands for ${packagesToUninstall.length} package(s)...</p>
+      <div style="text-align: center; margin-top: 2rem; font-size: 2rem;">⏳</div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  try {
+    const uninstallPlan = await ipcRenderer.invoke('generate-uninstall-plan', packagesToUninstall, systemInfo);
+    
+    // Show preview
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
+        <h2>🗑️ Uninstall Plan (Review)</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+          Gemini generated these commands for your system (${systemInfo.os}, ${systemInfo.packageManager}).
+        </p>
+        <div id="uninstall-preview-list"></div>
+        <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+          <button class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+          <button class="btn btn-primary" style="background: #c00; border-color: #c00;" onclick="executeUninstallPlan()">
+            Execute Uninstall
+          </button>
+        </div>
+      </div>
+    `;
+
+    const listDiv = document.getElementById('uninstall-preview-list');
+    uninstallPlan.forEach(pkg => {
+      const warnings = pkg.warnings && pkg.warnings.length > 0 
+        ? `<div style="background: #fffbe6; padding: 0.75rem; margin-top: 0.5rem; border-left: 3px solid #e6d600; font-size: 0.85rem;">
+             ${pkg.warnings.map(w => `⚠️ ${w}`).join('<br>')}
+           </div>`
+        : '';
+
+      listDiv.innerHTML += `
+        <div style="background: var(--bg-card); border: 1px solid var(--border); padding: 1rem; margin-bottom: 1rem;">
+          <h4 style="margin-bottom: 0.5rem;">${pkg.name}</h4>
+          <div style="background: #000; color: #0f0; padding: 0.75rem; font-family: 'Courier New', monospace; font-size: 0.85rem; margin-top: 0.5rem;">
+            ${pkg.uninstall_commands.map(cmd => `$ ${cmd}`).join('<br>')}
+          </div>
+          ${warnings}
+        </div>
+      `;
+    });
+
+    // Store for execution
+    window.pendingUninstallPlan = uninstallPlan;
+
+  } catch (error) {
+    modal.innerHTML = `
+      <div class="modal-content">
+        <h2>❌ Failed</h2>
+        <p>Could not generate uninstall plan: ${error.message}</p>
+        <button class="btn btn-primary" onclick="this.closest('.modal').remove()">Close</button>
+      </div>
+    `;
+  }
+};
+
+window.executeUninstallPlan = async function() {
+  const modal = document.querySelector('.modal');
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 800px;">
+      <h2>🗑️ Uninstalling...</h2>
+      <div id="uninstall-live-terminal" style="background: #000; color: #0f0; padding: 1rem; font-family: 'Courier New', monospace; font-size: 0.85rem; max-height: 450px; overflow-y: auto; margin: 1rem 0;"></div>
+      <button class="btn btn-primary" onclick="this.closest('.modal').remove(); location.reload();">Close & Refresh</button>
+    </div>
+  `;
+
+  const termDiv = document.getElementById('uninstall-live-terminal');
+  
+  for (const pkg of window.pendingUninstallPlan) {
+    termDiv.innerHTML += `<div style="color: #74c0fc;">═══ Uninstalling ${pkg.name} ═══</div>`;
+    
+    for (const cmd of pkg.uninstall_commands) {
+      termDiv.innerHTML += `<div style="color: #fff;">$ ${cmd}</div>`;
+      termDiv.scrollTop = termDiv.scrollHeight;
+      
+      try {
+        await ipcRenderer.invoke('install-dependency', { 
+          name: pkg.name,
+          display_name: pkg.name,
+          install_commands: [cmd]
+        }, sudoPassword);
+        termDiv.innerHTML += `<div style="color: #51cf66;">✓ Success</div>`;
+      } catch (error) {
+        termDiv.innerHTML += `<div style="color: #ff6b6b;">✗ ${error.message}</div>`;
+      }
+      termDiv.innerHTML += `<div></div>`;
+      termDiv.scrollTop = termDiv.scrollHeight;
+    }
+  }
+
+  termDiv.innerHTML += `<div style="color: #74c0fc; margin-top: 1rem;">═══ Uninstall Complete ═══</div>`;
+  termDiv.scrollTop = termDiv.scrollHeight;
+  
+  selectedForUninstall.clear();
+};
 
 function updateInstallButton() {
   installBtn.disabled = selectedDependencies.size === 0;
   installBtn.textContent = selectedDependencies.size > 0 ? 
     `Install (${selectedDependencies.size})` : 'Select Something';
+  
+  // Update uninstall button
+  const uninstallBtn = document.getElementById('uninstall-selected-btn');
+  if (selectedForUninstall.size > 0) {
+    uninstallBtn.style.display = 'block';
+    uninstallBtn.textContent = `Uninstall (${selectedForUninstall.size})`;
+  } else {
+    uninstallBtn.style.display = 'none';
+  }
 }
 
 async function handleInstall() {
   const depsToInstall = analysisResult.dependencies.filter(dep => 
     selectedDependencies.has(dep.name)
   );
+
+  // Show safety preview modal before proceeding
+  try {
+    const classification = await ipcRenderer.invoke('classify-commands', depsToInstall);
+    pendingInstallDeps = depsToInstall;
+    showSafetyPreview(classification);
+  } catch (error) {
+    // If classification fails, proceed directly (fallback)
+    pendingInstallDeps = depsToInstall;
+    proceedWithInstall();
+  }
+}
+
+// Safety preview functions
+function showSafetyPreview(classification) {
+  const modal = document.getElementById('safety-modal');
+  const summaryDiv = document.getElementById('safety-summary');
+  const listDiv = document.getElementById('safety-commands-list');
+  const s = classification.summary;
+
+  // Build summary bar
+  const parts = [];
+  if (s.dangerous > 0) parts.push(`<span class="risk-badge risk-dangerous">${s.dangerous} Dangerous</span>`);
+  if (s.elevated > 0) parts.push(`<span class="risk-badge risk-elevated">${s.elevated} Elevated</span>`);
+  if (s.moderate > 0) parts.push(`<span class="risk-badge risk-moderate">${s.moderate} Moderate</span>`);
+  if (s.safe > 0) parts.push(`<span class="risk-badge risk-safe">${s.safe} Safe</span>`);
+  summaryDiv.innerHTML = `<div class="risk-summary-row">${parts.join('')}<span style="margin-left:auto;color:var(--text-secondary);font-size:0.85rem;">${s.total} commands total</span></div>`;
+
+  // Block dangerous commands
+  const proceedBtn = document.getElementById('safety-proceed-btn');
+  if (s.dangerous > 0) {
+    proceedBtn.disabled = true;
+    proceedBtn.textContent = 'Blocked — Dangerous Commands Detected';
+  } else {
+    proceedBtn.disabled = false;
+    proceedBtn.textContent = 'Proceed with Install';
+  }
+
+  // Build command list grouped by dependency
+  let html = '';
+  for (const dep of classification.dependencies) {
+    html += `<div class="safety-dep-group">`;
+    html += `<h4 class="safety-dep-name">${dep.name} <span class="risk-badge risk-${dep.highestRisk}">${dep.highestRisk}</span></h4>`;
+    for (const cmd of dep.commands) {
+      html += `<div class="safety-cmd-row risk-${cmd.level}">
+        <code>${cmd.command}</code>
+        <span class="risk-label">${cmd.label}</span>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  listDiv.innerHTML = html;
+
+  modal.style.display = 'flex';
+}
+
+window.cancelSafetyPreview = function() {
+  document.getElementById('safety-modal').style.display = 'none';
+  pendingInstallDeps = null;
+};
+
+window.proceedWithInstall = async function() {
+  document.getElementById('safety-modal').style.display = 'none';
+  const depsToInstall = pendingInstallDeps;
+  if (!depsToInstall || depsToInstall.length === 0) return;
 
   // STEP 1: Show loading screen while generating questions
   showStep(3);
@@ -497,9 +750,43 @@ async function startInstallation(dependencies) {
       await ipcRenderer.invoke('install-dependency', dep, sudoPassword);
       
       addTerminalLine(`[${dep.display_name}] ✓ Installation complete`, 'success');
+      
+      // Track successfully installed package
+      installedPackagesHistory.push({
+        name: dep.name,
+        display_name: dep.display_name,
+        category: dep.category
+      });
     } catch (error) {
       addTerminalLine(`[${dep.display_name}] ✗ Installation failed`, 'error');
       addTerminalLine(`Error: ${error.message}`, 'error');
+
+      // AI Error Analysis
+      addTerminalLine(`[${dep.display_name}] 🔍 Analyzing error with AI...`, 'info');
+      try {
+        const diagnosis = await ipcRenderer.invoke('analyze-error', {
+          command: (dep.install_commands || [])[0] || 'unknown',
+          stderr: error.message,
+          exitCode: error.code || 1,
+          dependency: dep.display_name || dep.name,
+          systemInfo: systemInfo
+        });
+        addTerminalLine(``, 'normal');
+        addTerminalLine(`┌─ AI Diagnosis ──────────────────────`, 'info');
+        addTerminalLine(`│ Cause: ${diagnosis.root_cause}`, 'info');
+        addTerminalLine(`│`, 'normal');
+        addTerminalLine(`│ ${diagnosis.explanation}`, 'normal');
+        addTerminalLine(`│`, 'normal');
+        if (diagnosis.suggested_fixes && diagnosis.suggested_fixes.length > 0) {
+          addTerminalLine(`│ Suggested fixes:`, 'info');
+          diagnosis.suggested_fixes.forEach((fix, i) => {
+            addTerminalLine(`│  ${i + 1}. ${fix}`, 'success');
+          });
+        }
+        addTerminalLine(`└─────────────────────────────────────`, 'info');
+      } catch (analysisErr) {
+        addTerminalLine(`[${dep.display_name}] Could not analyze error automatically`, 'info');
+      }
     }
   }
 
@@ -565,3 +852,154 @@ function showStep(stepNumber) {
   // Smooth scroll to top
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+// ──── Mode Toggle (Essential vs Full) ────
+
+window.setMode = function(mode) {
+  currentMode = mode;
+  document.getElementById('mode-essential').classList.toggle('active', mode === 'essential');
+  document.getElementById('mode-full').classList.toggle('active', mode === 'full');
+
+  // Re-render dependencies with filter
+  if (analysisResult && analysisResult.dependencies) {
+    displayDependencies(analysisResult.dependencies);
+  }
+};
+
+// ──── Conflict Warnings ────
+
+function displayConflicts(conflicts) {
+  const container = document.getElementById('conflict-warnings');
+  if (!conflicts || conflicts.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'block';
+  container.innerHTML = conflicts.map(c => `
+    <div class="conflict-card">
+      <span class="conflict-icon">⚠️</span>
+      <div>
+        <strong>${c.title}</strong>
+        <p>${c.message}</p>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ──── Uninstaller Placeholder ────
+
+window.showUninstallPlaceholder = async function() {
+  if (installedPackagesHistory.length === 0) {
+    alert('No packages installed this session. Install something first!');
+    return;
+  }
+
+  // Show loading modal
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.style.display = 'flex';
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>🗑️ Generating Uninstall Plan...</h2>
+      <p>Asking Gemini AI how to safely remove ${installedPackagesHistory.length} package(s)...</p>
+      <div style="text-align: center; margin-top: 2rem; font-size: 2rem;">⏳</div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  try {
+    const uninstallPlan = await ipcRenderer.invoke('generate-uninstall-plan', installedPackagesHistory, systemInfo);
+    
+    // Show uninstall UI
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 800px; max-height: 85vh; overflow-y: auto;">
+        <h2>🗑️ Uninstall Plan</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+          Review the commands before proceeding. These will remove ${installedPackagesHistory.length} package(s).
+        </p>
+        <div id="uninstall-list"></div>
+        <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+          <button class="btn btn-secondary" onclick="closeUninstallModal()">Cancel</button>
+          <button class="btn btn-primary" style="background: #c00; border-color: #c00;" onclick="executeUninstall()">
+            Execute Uninstall
+          </button>
+        </div>
+      </div>
+    `;
+
+    const listDiv = document.getElementById('uninstall-list');
+    uninstallPlan.forEach(pkg => {
+      const warnings = pkg.warnings && pkg.warnings.length > 0 
+        ? `<div style="background: #fffbe6; padding: 0.75rem; margin-top: 0.5rem; border-left: 3px solid #e6d600; font-size: 0.85rem;">
+             ${pkg.warnings.map(w => `⚠️ ${w}`).join('<br>')}
+           </div>`
+        : '';
+
+      listDiv.innerHTML += `
+        <div style="background: var(--bg-card); border: 1px solid var(--border); padding: 1rem; margin-bottom: 1rem;">
+          <h4 style="margin-bottom: 0.5rem;">${pkg.name}</h4>
+          <div style="background: #000; color: #0f0; padding: 0.75rem; font-family: 'Courier New', monospace; font-size: 0.85rem; margin-top: 0.5rem;">
+            ${pkg.uninstall_commands.map(cmd => `$ ${cmd}`).join('<br>')}
+          </div>
+          ${warnings}
+        </div>
+      `;
+    });
+
+    // Store plan for execution
+    window.currentUninstallPlan = uninstallPlan;
+
+  } catch (error) {
+    modal.innerHTML = `
+      <div class="modal-content">
+        <h2>❌ Failed</h2>
+        <p>Could not generate uninstall plan: ${error.message}</p>
+        <button class="btn btn-primary" onclick="closeUninstallModal()">Close</button>
+      </div>
+    `;
+  }
+};
+
+window.closeUninstallModal = function() {
+  const modals = document.querySelectorAll('.modal');
+  modals.forEach(m => m.remove());
+};
+
+window.executeUninstall = async function() {
+  const modal = document.querySelector('.modal');
+  modal.innerHTML = `
+    <div class="modal-content">
+      <h2>🗑️ Uninstalling...</h2>
+      <div id="uninstall-terminal" style="background: #000; color: #0f0; padding: 1rem; font-family: 'Courier New', monospace; font-size: 0.85rem; max-height: 400px; overflow-y: auto; margin: 1rem 0;"></div>
+      <button class="btn btn-primary" onclick="closeUninstallModal()">Close</button>
+    </div>
+  `;
+
+  const termDiv = document.getElementById('uninstall-terminal');
+  
+  for (const pkg of window.currentUninstallPlan) {
+    termDiv.innerHTML += `<div style="color: #74c0fc;">═══ Uninstalling ${pkg.name} ═══</div>`;
+    
+    for (const cmd of pkg.uninstall_commands) {
+      termDiv.innerHTML += `<div style="color: #fff;">$ ${cmd}</div>`;
+      try {
+        // Execute via installer (reuse the execute logic)
+        await ipcRenderer.invoke('install-dependency', { 
+          name: pkg.name,
+          display_name: pkg.name,
+          install_commands: [cmd]
+        }, sudoPassword);
+        termDiv.innerHTML += `<div style="color: #51cf66;">✓ Success</div>`;
+      } catch (error) {
+        termDiv.innerHTML += `<div style="color: #ff6b6b;">✗ Failed: ${error.message}</div>`;
+      }
+      termDiv.innerHTML += `<div></div>`;
+    }
+  }
+
+  termDiv.innerHTML += `<div style="color: #74c0fc; margin-top: 1rem;">═══ Uninstall Complete ═══</div>`;
+  
+  // Clear history
+  installedPackagesHistory = [];
+};

@@ -89,6 +89,16 @@
         <h2 class="step-title">02. Pick what you want</h2>
         <p style="margin-bottom: 2rem; color: var(--text-secondary);">Click to select dependencies. Selected items will be highlighted.</p>
         
+        <!-- Mode Toggle (Minimal vs Full) -->
+        <div class="mode-toggle-bar" id="mode-toggle-bar" style="display: none;">
+          <span class="mode-label">Mode:</span>
+          <button class="mode-btn active" id="mode-essential" onclick="setMode('essential')">Essential Only</button>
+          <button class="mode-btn" id="mode-full" onclick="setMode('full')">Full Stack</button>
+        </div>
+
+        <!-- Conflict Warnings -->
+        <div id="conflict-warnings" class="conflict-warnings" style="display: none;"></div>
+
         <!-- Stack Options (shown when multiple stack choices available) -->
         <div id="stack-options-container" class="stack-options-container hidden">
           <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">Choose Your Stack:</h3>
@@ -101,6 +111,9 @@
         <div id="dependencies-grid" class="dependencies-grid"></div>
         <div class="action-bar">
           <button id="back-btn" class="btn btn-secondary">← Back</button>
+          <button id="uninstall-selected-btn" class="btn btn-secondary" style="background: #c00; border-color: #c00; color: #fff; display: none;" onclick="uninstallSelected()">
+            Uninstall Selected
+          </button>
           <button id="install-btn" class="btn btn-primary" disabled>Select Something</button>
         </div>
       </section>
@@ -150,6 +163,7 @@
         <div id="verification-results" class="verification-results"></div>
         <div class="action-bar">
           <button id="new-search-btn" class="btn btn-primary">Install More Stuff</button>
+          <button id="uninstall-btn" class="btn btn-secondary" onclick="showUninstallPlaceholder()">Uninstall Packages</button>
         </div>
       </section>
     </main>
@@ -158,6 +172,20 @@
     <footer class="footer">
       <p>Quest GPT • Built with AI, sass, and minimal design • Linux Edition</p>
     </footer>
+
+    <!-- Safety Preview Modal -->
+    <div class="modal" id="safety-modal" style="display: none;">
+      <div class="modal-content safety-modal-content">
+        <h2>🔍 Command Safety Preview</h2>
+        <p>Review the commands that will run on your system before proceeding.</p>
+        <div id="safety-summary" class="safety-summary"></div>
+        <div id="safety-commands-list" class="safety-commands-list"></div>
+        <div class="safety-actions">
+          <button class="btn btn-secondary" onclick="cancelSafetyPreview()">← Cancel</button>
+          <button class="btn btn-primary" id="safety-proceed-btn" onclick="proceedWithInstall()">Proceed with Install</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="renderer.js"></script>

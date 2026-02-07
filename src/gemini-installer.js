@@ -9,11 +9,36 @@ require('dotenv').config();
 class GeminiInstaller {
   constructor() {
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     
-    // Separate model for MCQ generation using Gemini 2.5 Flash Lite
-    this.genAI_MCQ = new GoogleGenerativeAI(process.env.GEMINI_MCQ_API_KEY);
-    this.mcqModel = this.genAI_MCQ.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+    // Separate model for MCQ generation using same model
+    this.genAI_MCQ = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || process.env.GEMINI_MCQ_API_KEY);
+    this.mcqModel = this.genAI_MCQ.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+  }
+
+  /**
+   * Remove markdown code fences if present and return a clean JSON string.
+   */
+  cleanJsonText(text) {
+    let cleaned = String(text ?? '').trim();
+    cleaned = cleaned.replace(/^```json\n?/gm, '');
+    cleaned = cleaned.replace(/^```\n?/gm, '');
+    cleaned = cleaned.replace(/\n?```$/gm, '');
+    return cleaned.trim();
+  }
+
+  /**
+   * Parse a model response as JSON (generic).
+   */
+  parseJson(text) {
+    const cleaned = this.cleanJsonText(text);
+    try {
+      return JSON.parse(cleaned);
+    } catch (error) {
+      throw new Error(
+        `Failed to parse Gemini JSON: ${error.message}\nResponse: ${String(text).substring(0, 200)}`
+      );
+    }
   }
 
   /**
@@ -340,29 +365,31 @@ Now analyze: "${userRequest}"`;
   }
 
   /**
-   * Parse and clean Gemini response
+   * Parse and validate the analysis response (dependency detection).
    */
-  parseResponse(text) {
-    try {
-      // Remove markdown code blocks if present
-      let cleaned = text.trim();
-      cleaned = cleaned.replace(/^```json\n?/gm, '');
-      cleaned = cleaned.replace(/^```\n?/gm, '');
-      cleaned = cleaned.replace(/\n?```$/gm, '');
-      cleaned = cleaned.trim();
-
-      // Parse JSON
-      const data = JSON.parse(cleaned);
-
-      // Validate structure
-      if (!data.type || !data.dependencies) {
-        throw new Error('Invalid response structure');
-      }
-
-      return data;
-    } catch (error) {
-      throw new Error(`Failed to parse Gemini response: ${error.message}\nResponse: ${text.substring(0, 200)}`);
+  parseAnalyzeResponse(text) {
+    const data = this.parseJson(text);
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid response: expected JSON object');
     }
+    if (!data.type || !Array.isArray(data.dependencies)) {
+      throw new Error('Invalid analysis response structure (expected type + dependencies[])');
+    }
+    return data;
+  }
+
+  /**
+   * Parse and validate MCQ response.
+   */
+  parseMcqResponse(text) {
+    const data = this.parseJson(text);
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid MCQ response: expected JSON object');
+    }
+    if (!Array.isArray(data.questions)) {
+      throw new Error('Invalid MCQ response structure (expected questions[])');
+    }
+    return data;
   }
 
   /**
@@ -376,7 +403,7 @@ Now analyze: "${userRequest}"`;
       const response = await result.response;
       const text = response.text();
 
-      return this.parseResponse(text);
+      return this.parseAnalyzeResponse(text);
     } catch (error) {
       throw new Error(`Gemini API error: ${error.message}`);
     }
@@ -401,7 +428,7 @@ Return ONLY JSON:
       const response = await result.response;
       const text = response.text();
       
-      return this.parseResponse(text);
+      return this.parseJson(text);
     } catch (error) {
       throw new Error(`Failed to get installation plan: ${error.message}`);
     }
@@ -410,7 +437,7 @@ Return ONLY JSON:
   /**
    * Generate MCQs separately to avoid overloading main analysis
    * This is called AFTER dependencies are selected
-   * Uses Gemini 2.0 Flash Lite for faster, cheaper question generation
+  * Uses Gemini 2.5 Flash-Lite for faster, cheaper question generation
    */
   async generateMCQs(dependencies) {
     // Generate exactly 5 questions total (simple and fast)
@@ -444,7 +471,7 @@ CRITICAL RULES:
 - Include ALL 5 questions in response`;
 
     try {
-      // Use the MCQ model (Gemini 2.0 Flash Lite) - fast and cheap
+      // Use the MCQ model (Gemini 2.5 Flash-Lite) - fast and cheap
       const result = await this.mcqModel.generateContent(prompt, {
         generationConfig: {
           maxOutputTokens: 2048,
@@ -454,7 +481,7 @@ CRITICAL RULES:
       const response = await result.response;
       const text = response.text();
       
-      return this.parseResponse(text);
+      return this.parseMcqResponse(text);
     } catch (error) {
       throw new Error(`Failed to generate MCQs: ${error.message}`);
     }

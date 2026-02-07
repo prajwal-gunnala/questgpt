@@ -75,7 +75,7 @@
     "dotenv": "^17.2.3",
     "figlet": "^1.7.0",
     "gradient-string": "^2.0.2",
-    "inquirer": "^8.2.6",
+    "inquirer": "^8.2.7",
     "ora": "^5.4.1"
   },
   "devDependencies": {
