@@ -899,6 +899,24 @@ body {
   color: var(--text-secondary);
 }
 
+/* API Key Input */
+.api-key-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: monospace;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  transition: border-color 0.2s ease;
+}
+
+.api-key-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
 /* MCQ Section */
 .mcq-container {
   background: transparent;

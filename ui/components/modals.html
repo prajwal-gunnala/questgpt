@@ -42,3 +42,20 @@
     </div>
   </div>
 </div>
+
+<!-- API Key Configuration Modal -->
+<div class="modal" id="api-key-modal" style="display: none;">
+  <div class="modal-content">
+    <h2>🔑 Configure API Key</h2>
+    <p>Quest GPT requires a Google Gemini API key to analyze and process your installation requests.</p>
+    <div style="margin: 1.5rem 0;">
+      <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Enter your Gemini API Key:</label>
+      <input type="password" id="api-key-input" class="api-key-input" placeholder="AIza..." style="width: 100%; padding: 0.75rem; border: 2px solid var(--border); border-radius: 8px; font-size: 1rem; font-family: monospace;">
+      <p style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">
+        Don't have an API key? <a href="https://makersuite.google.com/app/apikey" target="_blank" style="color: var(--accent-color);">Get one free from Google</a>
+      </p>
+    </div>
+    <div id="api-key-error" style="display: none; color: var(--error-color); margin: 1rem 0; padding: 0.75rem; background: rgba(255,0,0,0.1); border-radius: 8px;"></div>
+    <button class="btn btn-primary" onclick="saveApiKey()" style="width: 100%;">Save & Continue</button>
+  </div>
+</div>

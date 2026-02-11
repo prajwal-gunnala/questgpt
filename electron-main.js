@@ -1,5 +1,34 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
+
+// Load environment variables from .env file
+require('dotenv').config({
+  path: path.join(__dirname, '.env')
+});
+
+// Try to load API key from config.json if .env doesn't have it
+function loadApiKey() {
+  // First, check if .env has a valid key
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_api_key_here') {
+    return;
+  }
+  
+  // Try to load from config.json
+  const configPath = path.join(__dirname, 'config.json');
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      if (config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'your_api_key_here') {
+        process.env.GEMINI_API_KEY = config.GEMINI_API_KEY;
+      }
+    } catch (error) {
+      console.error('Error reading config.json:', error);
+    }
+  }
+}
+
+loadApiKey();
 
 // Import existing modules
 const SystemDetector = require('./src/system-detector');
@@ -27,6 +56,18 @@ function createWindow() {
 
   mainWindow.loadFile('ui/index.html');
   // DevTools removed for production
+  
+  // Validate API key on startup
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_api_key_here') {
+    const { dialog } = require('electron');
+    dialog.showErrorBox(
+      'API Key Not Configured',
+      'GEMINI_API_KEY is not configured in the .env file.\n\n' +
+      'Please create or update the .env file in the application directory with:\n' +
+      'GEMINI_API_KEY=your_actual_api_key_here\n\n' +
+      'Get your API key from: https://makersuite.google.com/app/apikey'
+    );
+  }
 }
 
 app.whenReady().then(createWindow);
@@ -115,13 +156,51 @@ ipcMain.handle('generate-uninstall-plan', async (event, installedPackages, syste
 // 
 // Analyze request
 ipcMain.handle('analyze-request', async (event, userRequest, systemInfo) => {
-  return await geminiInstaller.analyzeRequest(userRequest, systemInfo);
+  try {
+    // Validate API key before making the request
+    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_api_key_here') {
+      throw new Error('GEMINI_API_KEY is not configured. Please set your API key in the .env file.');
+    }
+    return await geminiInstaller.analyzeRequest(userRequest, systemInfo);
+  } catch (error) {
+    console.error('Error in analyze-request:', error);
+    // Return a structured error that the UI can display
+    return {
+      error: true,
+      message: error.message || 'Failed to analyze request',
+      details: error.toString()
+    };
+  }
 });
 
 // Check if installed
 ipcMain.handle('check-installed', async (event, dependency) => {
   return await verifier.verifyInstallation(dependency);
 });
+
+// Get API key status
+ipcMain.handle('get-api-key-status', async () => {
+  const hasKey = !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your_api_key_here');
+  return {
+    configured: hasKey,
+    key: hasKey ? '***' + process.env.GEMINI_API_KEY.slice(-4) : null
+  };
+});
+
+// Save API key to config.json
+ipcMain.handle('save-api-key', async (event, apiKey) => {
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    const config = { GEMINI_API_KEY: apiKey };
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    process.env.GEMINI_API_KEY = apiKey;
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving API key:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 
 // Install dependency with progress
 ipcMain.handle('install-dependency', async (event, dependency, sudoPassword) => {

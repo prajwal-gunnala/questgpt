@@ -26,7 +26,8 @@
       "src/**/*",
       "assets/**/*",
       "node_modules/**/*",
-      ".env"
+      ".env",
+      "config.json.example"
     ],
     "linux": {
       "target": [

@@ -18,6 +18,54 @@ window.closeWelcome = function() {
   document.getElementById('welcome-modal').style.display = 'none';
 };
 
+// API Key configuration functions
+window.saveApiKey = async function() {
+  const apiKeyInput = document.getElementById('api-key-input');
+  const apiKey = apiKeyInput.value.trim();
+  const errorDiv = document.getElementById('api-key-error');
+  
+  if (!apiKey) {
+    errorDiv.textContent = 'Please enter an API key';
+    errorDiv.style.display = 'block';
+    return;
+  }
+  
+  if (!apiKey.startsWith('AIza')) {
+    errorDiv.textContent = 'Invalid API key format. Gemini API keys start with "AIza"';
+    errorDiv.style.display = 'block';
+    return;
+  }
+  
+  try {
+    const result = await ipcRenderer.invoke('save-api-key', apiKey);
+    if (result.success) {
+      document.getElementById('api-key-modal').style.display = 'none';
+      errorDiv.style.display = 'none';
+      apiKeyInput.value = '';
+    } else {
+      errorDiv.textContent = 'Failed to save API key: ' + result.error;
+      errorDiv.style.display = 'block';
+    }
+  } catch (error) {
+    errorDiv.textContent = 'Error saving API key: ' + error.message;
+    errorDiv.style.display = 'block';
+  }
+};
+
+async function checkApiKeyOnStartup() {
+  try {
+    const status = await ipcRenderer.invoke('get-api-key-status');
+    if (!status.configured) {
+      // Hide welcome modal and show API key modal
+      document.getElementById('welcome-modal').style.display = 'none';
+      document.getElementById('api-key-modal').style.display = 'flex';
+    }
+  } catch (error) {
+    console.error('Error checking API key status:', error);
+  }
+}
+
+
 // Terminal output helper
 function addTerminalLine(text, type = 'normal') {
   const terminalBody = document.getElementById('terminal-output');
@@ -124,6 +172,9 @@ const verificationResults = document.getElementById('verification-results');
 init();
 
 async function init() {
+  // Check API key status first
+  await checkApiKeyOnStartup();
+  
   // Auto-close welcome modal after 3 seconds
   setTimeout(() => {
     closeWelcome();
@@ -486,7 +537,7 @@ async function uninstallSelected() {
 window.uninstallSelected = uninstallSelected;
 
 async function executeUninstallPlan() {
-  const modal = document.querySelector('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal)');
+  const modal = document.querySelector('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal):not(#api-key-modal)');
   if (!modal) return;
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 800px;">
@@ -1105,12 +1156,12 @@ window.showUninstallPlaceholder = showUninstallPlaceholder;
 
 window.closeUninstallModal = function() {
   // Only remove dynamically created modals, not static ones
-  const modals = document.querySelectorAll('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal)');
+  const modals = document.querySelectorAll('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal):not(#api-key-modal)');
   modals.forEach(m => m.remove());
 };
 
 window.executeUninstall = async function() {
-  const modal = document.querySelector('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal)');
+  const modal = document.querySelector('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal):not(#api-key-modal)');
   if (!modal) return;
   modal.innerHTML = `
     <div class="modal-content">
