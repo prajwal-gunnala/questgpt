@@ -1,0 +1,44 @@
+<!-- Welcome Modal -->
+<div class="modal" id="welcome-modal" onclick="event.stopPropagation()">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <img src="../assets/logo.png" alt="Quest GPT Logo" class="welcome-logo" onerror="console.error('Welcome logo failed'); this.style.display='none';">
+    <div class="logo-ascii">
+      ╔═══════════════════════════════╗<br>
+      ║   QUEST GPT                   ║<br>
+      ║   AI Powered Installer        ║<br>
+      ╚═══════════════════════════════╝
+    </div>
+    <h2>Welcome to Quest GPT</h2>
+    <p>Your sassy AI-powered automation installer. Here's how it works:</p>
+    <ol style="line-height: 2; margin: 2rem 0;">
+      <li><strong>Tell me what you need</strong> - Type anything like "pandas" or "web dev stack"</li>
+      <li><strong>Pick your poison</strong> - Select what you actually want to install</li>
+      <li><strong>Learn while I work</strong> - Answer MCQs and learn what you're installing</li>
+    </ol>
+    <p style="font-size: 0.9rem; color: var(--text-secondary);">No boring terminal output. Just knowledge and working software.</p>
+    <button class="btn btn-primary" onclick="closeWelcome()">Let's Go</button>
+  </div>
+</div>
+
+<!-- Installation Complete Modal -->
+<div class="modal" id="complete-modal" style="display: none;">
+  <div class="modal-content">
+    <h2>✅ Installation Complete!</h2>
+    <p style="margin: 1.5rem 0; font-size: 1.1rem;">All packages have been installed. Let's verify everything is working correctly.</p>
+    <button class="btn btn-primary" onclick="proceedToVerification()" style="width: 100%;">Continue to Verification →</button>
+  </div>
+</div>
+
+<!-- Safety Preview Modal -->
+<div class="modal" id="safety-modal" style="display: none;">
+  <div class="modal-content safety-modal-content">
+    <h2>🔍 Command Safety Preview</h2>
+    <p>Review the commands that will run on your system before proceeding.</p>
+    <div id="safety-summary" class="safety-summary"></div>
+    <div id="safety-commands-list" class="safety-commands-list"></div>
+    <div class="safety-actions">
+      <button class="btn btn-secondary" onclick="cancelSafetyPreview()">← Cancel</button>
+      <button class="btn btn-primary" id="safety-proceed-btn" onclick="proceedWithInstall()">Proceed with Install</button>
+    </div>
+  </div>
+</div>

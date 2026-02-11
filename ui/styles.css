@@ -479,6 +479,23 @@ body {
   border-color: #c00;
   border-width: 2px;
   background: #fff5f5;
+  box-shadow: 0 0 0 1px #c00, 0 4px 12px rgba(200, 0, 0, 0.15);
+  transform: translateY(-2px);
+  opacity: 1 !important;
+}
+
+.uninstall-hint {
+  margin-top: 0.75rem;
+  font-size: 0.78rem;
+  color: #c00;
+  opacity: 0.7;
+  font-weight: 500;
+  text-align: center;
+}
+
+.dependency-card.selected-uninstall .uninstall-hint {
+  opacity: 1;
+  font-weight: 600;
 }
 
 .status-installed {
@@ -717,6 +734,88 @@ body {
 
 .verification-item.error {
   border-color: var(--error);
+}
+
+/* Chatbot Placeholder */
+.chatbot-placeholder {
+  margin-top: 1.5rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  opacity: 0.6;
+}
+
+.chatbot-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.chatbot-badge {
+  margin-left: auto;
+  font-size: 0.65rem;
+  padding: 0.2rem 0.5rem;
+  background: var(--primary);
+  color: var(--secondary);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.chatbot-body {
+  padding: 1rem;
+  min-height: 80px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.chatbot-message {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.chatbot-message .chatbot-avatar {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.chatbot-message p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.chatbot-input-area {
+  display: flex;
+  border-top: 1px solid var(--border);
+}
+
+.chatbot-input {
+  flex: 1;
+  padding: 0.6rem 1rem;
+  border: none;
+  background: var(--bg-card);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.chatbot-send-btn {
+  padding: 0.6rem 1rem;
+  border: none;
+  background: var(--primary);
+  color: var(--secondary);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: not-allowed;
 }
 
 /* Action Bar */

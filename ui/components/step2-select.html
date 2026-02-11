@@ -1,0 +1,33 @@
+<!-- Section 2: Selection -->
+<section class="step-section hidden" id="step-2">
+  <h2 class="step-title">02. Pick what you want</h2>
+  <p style="margin-bottom: 2rem; color: var(--text-secondary);">Click to select dependencies. Selected items will be highlighted.</p>
+  
+  <!-- Mode Toggle (Minimal vs Full) -->
+  <div class="mode-toggle-bar" id="mode-toggle-bar" style="display: none;">
+    <span class="mode-label">Mode:</span>
+    <button class="mode-btn active" id="mode-essential" onclick="setMode('essential')">Essential Only</button>
+    <button class="mode-btn" id="mode-full" onclick="setMode('full')">Full Stack</button>
+  </div>
+
+  <!-- Conflict Warnings -->
+  <div id="conflict-warnings" class="conflict-warnings" style="display: none;"></div>
+
+  <!-- Stack Options (shown when multiple stack choices available) -->
+  <div id="stack-options-container" class="stack-options-container hidden">
+    <h3 style="margin-bottom: 1rem; font-size: 1.1rem;">Choose Your Stack:</h3>
+    <div id="stack-options-grid" class="stack-options-grid"></div>
+    <div style="margin: 2rem 0; padding: 1rem; background: var(--bg-card); border-left: 3px solid var(--primary);">
+      <p style="font-size: 0.9rem; color: var(--text-secondary);">Or select individual packages below ↓</p>
+    </div>
+  </div>
+  
+  <div id="dependencies-grid" class="dependencies-grid"></div>
+  <div class="action-bar">
+    <button id="back-btn" class="btn btn-secondary">← Back</button>
+    <button id="uninstall-selected-btn" class="btn btn-secondary" style="background: #c00; border-color: #c00; color: #fff; display: none;" onclick="uninstallSelected()">
+      Uninstall Selected
+    </button>
+    <button id="install-btn" class="btn btn-primary" disabled>Select Something</button>
+  </div>
+</section>

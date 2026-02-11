@@ -28,6 +28,35 @@ function addTerminalLine(text, type = 'normal') {
   terminalBody.scrollTop = terminalBody.scrollHeight;
 }
 
+function normalizeCorrectIndex(correct, options) {
+  if (!Array.isArray(options)) return 0;
+
+  if (typeof correct === 'number' && Number.isFinite(correct)) {
+    return Math.min(Math.max(correct, 0), options.length - 1);
+  }
+
+  if (typeof correct === 'string') {
+    const trimmed = correct.trim();
+    const asNumber = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(asNumber)) {
+      return Math.min(Math.max(asNumber, 0), options.length - 1);
+    }
+
+    // Handle A/B/C/D style answers
+    const upper = trimmed.toUpperCase();
+    if (/^[A-D]$/.test(upper)) {
+      const idx = upper.charCodeAt(0) - 'A'.charCodeAt(0);
+      return Math.min(Math.max(idx, 0), options.length - 1);
+    }
+
+    // Handle exact option text
+    const matchIdx = options.findIndex(o => String(o).trim() === trimmed);
+    if (matchIdx >= 0) return matchIdx;
+  }
+
+  return 0;
+}
+
 function clearTerminal() {
   const terminalBody = document.getElementById('terminal-output');
   terminalBody.innerHTML = '<div class="terminal-line">Quest GPT Installer v1.0</div><div class="terminal-line">Starting installation...</div>';
@@ -86,6 +115,7 @@ const dependenciesGrid = document.getElementById('dependencies-grid');
 const installBtn = document.getElementById('install-btn');
 const backBtn = document.getElementById('back-btn');
 const newSearchBtn = document.getElementById('new-search-btn');
+const uninstallBtn = document.getElementById('uninstall-btn');
 const systemInfoDiv = document.getElementById('system-info');
 const mcqSection = document.getElementById('mcq-section');
 const progressSection = document.getElementById('progress-section');
@@ -125,6 +155,21 @@ newSearchBtn.addEventListener('click', () => {
   selectedDependencies.clear();
   searchInput.value = '';
 });
+if (uninstallBtn) {
+  uninstallBtn.addEventListener('click', showUninstallPlaceholder);
+}
+
+// Uninstall-selected button on Step 2 (installed packages)
+const uninstallSelectedBtn = document.getElementById('uninstall-selected-btn');
+if (uninstallSelectedBtn) {
+  uninstallSelectedBtn.addEventListener('click', () => uninstallSelected());
+}
+
+// Mode toggle buttons
+const modeEssentialBtn = document.getElementById('mode-essential');
+const modeFullBtn = document.getElementById('mode-full');
+if (modeEssentialBtn) modeEssentialBtn.addEventListener('click', () => setMode('essential'));
+if (modeFullBtn) modeFullBtn.addEventListener('click', () => setMode('full'));
 
 async function handleSearch() {
   const query = searchInput.value.trim();
@@ -305,7 +350,12 @@ async function displayDependencies(dependencies) {
     } else {
       // Already installed - can select for uninstall
       card.style.cursor = 'pointer';
-      card.style.opacity = '0.7';
+      card.style.opacity = '0.75';
+      // Add uninstall hint
+      const hintEl = document.createElement('div');
+      hintEl.className = 'uninstall-hint';
+      hintEl.textContent = 'Click to select for uninstall';
+      card.appendChild(hintEl);
       card.addEventListener('click', (e) => {
         e.stopPropagation();
         toggleUninstallSelection(dep, card);
@@ -334,19 +384,22 @@ function toggleDependency(dep, card) {
 }
 
 function toggleUninstallSelection(dep, card) {
+  const hint = card.querySelector('.uninstall-hint');
   if (selectedForUninstall.has(dep.name)) {
     selectedForUninstall.delete(dep.name);
     card.classList.remove('selected-uninstall');
-    card.style.opacity = '0.7';
+    card.style.opacity = '0.75';
+    if (hint) hint.textContent = 'Click to select for uninstall';
   } else {
     selectedForUninstall.add(dep.name);
     card.classList.add('selected-uninstall');
     card.style.opacity = '1';
+    if (hint) hint.textContent = '✓ Selected for uninstall';
   }
   updateInstallButton();
 }
 
-window.uninstallSelected = async function() {
+async function uninstallSelected() {
   const packagesToUninstall = analysisResult.dependencies.filter(dep => 
     selectedForUninstall.has(dep.name)
   );
@@ -356,6 +409,13 @@ window.uninstallSelected = async function() {
   // Confirmation
   if (!confirm(`⚠️ Are you sure you want to uninstall ${packagesToUninstall.length} package(s)?\n\n${packagesToUninstall.map(p => p.display_name || p.name).join(', ')}\n\nThis action cannot be undone.`)) {
     return;
+  }
+
+  // Prompt for sudo password if not available
+  if (!sudoPassword) {
+    const pw = prompt('Enter your sudo password to proceed with uninstall:');
+    if (!pw) return;
+    sudoPassword = pw;
   }
 
   // Show loading modal
@@ -422,10 +482,12 @@ window.uninstallSelected = async function() {
       </div>
     `;
   }
-};
+}
+window.uninstallSelected = uninstallSelected;
 
-window.executeUninstallPlan = async function() {
-  const modal = document.querySelector('.modal');
+async function executeUninstallPlan() {
+  const modal = document.querySelector('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal)');
+  if (!modal) return;
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 800px;">
       <h2>🗑️ Uninstalling...</h2>
@@ -462,7 +524,8 @@ window.executeUninstallPlan = async function() {
   termDiv.scrollTop = termDiv.scrollHeight;
   
   selectedForUninstall.clear();
-};
+}
+window.executeUninstallPlan = executeUninstallPlan;
 
 function updateInstallButton() {
   installBtn.disabled = selectedDependencies.size === 0;
@@ -513,12 +576,23 @@ function showSafetyPreview(classification) {
 
   // Block dangerous commands
   const proceedBtn = document.getElementById('safety-proceed-btn');
+  if (!proceedBtn) {
+    console.error('Proceed button not found!');
+    return;
+  }
+  
+  console.log('Safety check - dangerous:', s.dangerous, 'elevated:', s.elevated, 'moderate:', s.moderate, 'safe:', s.safe);
+  
   if (s.dangerous > 0) {
     proceedBtn.disabled = true;
     proceedBtn.textContent = 'Blocked — Dangerous Commands Detected';
+    proceedBtn.style.opacity = '0.5';
+    proceedBtn.style.cursor = 'not-allowed';
   } else {
     proceedBtn.disabled = false;
     proceedBtn.textContent = 'Proceed with Install';
+    proceedBtn.style.opacity = '1';
+    proceedBtn.style.cursor = 'pointer';
   }
 
   // Build command list grouped by dependency
@@ -539,15 +613,21 @@ function showSafetyPreview(classification) {
   modal.style.display = 'flex';
 }
 
-window.cancelSafetyPreview = function() {
+function cancelSafetyPreview() {
   document.getElementById('safety-modal').style.display = 'none';
   pendingInstallDeps = null;
-};
+}
+window.cancelSafetyPreview = cancelSafetyPreview;
 
-window.proceedWithInstall = async function() {
-  document.getElementById('safety-modal').style.display = 'none';
+async function proceedWithInstall() {
+  const modal = document.getElementById('safety-modal');
+  if (modal) modal.style.display = 'none';
+  
   const depsToInstall = pendingInstallDeps;
-  if (!depsToInstall || depsToInstall.length === 0) return;
+  
+  if (!depsToInstall || depsToInstall.length === 0) {
+    return;
+  }
 
   // STEP 1: Show loading screen while generating questions
   showStep(3);
@@ -573,12 +653,14 @@ window.proceedWithInstall = async function() {
     allQuestions = [];
     if (result.questions && result.questions.length > 0) {
       result.questions.forEach(q => {
+        const options = Array.isArray(q.options) ? q.options : [];
+        const correctIdx = normalizeCorrectIndex(q.correct, options);
         allQuestions.push({
           name: q.dependency || 'Technology',
           description: q.explanation || 'Learn about this technology',
           question: q.question,
-          options: q.options,
-          correct: q.correct
+          options,
+          correct: correctIdx
         });
       });
     }
@@ -638,6 +720,8 @@ window.proceedWithInstall = async function() {
   }
 }
 
+window.proceedWithInstall = proceedWithInstall;
+
 function startQuestionCycle() {
   // Auto-advance questions every 10 seconds if not answered
   if (questionInterval) clearInterval(questionInterval);
@@ -688,14 +772,22 @@ function displayNextMCQ() {
       <div class="mcq-question">Question ${currentMCQIndex + 1}/${allQuestions.length}: ${q.question}</div>
       <div class="mcq-options" id="mcq-opts">
         ${q.options.map((opt, idx) => `
-          <div class="mcq-option" onclick="selectAnswer(${idx}, ${q.correct})">${opt}</div>
+          <div class="mcq-option" data-idx="${idx}">${opt}</div>
         `).join('')}
       </div>
     </div>
   `;
+
+  const opts = document.querySelectorAll('#mcq-opts .mcq-option');
+  opts.forEach((el) => {
+    el.addEventListener('click', () => {
+      const idx = Number.parseInt(el.getAttribute('data-idx') || '0', 10);
+      selectAnswer(idx, q.correct);
+    });
+  });
 }
 
-window.selectAnswer = function(selectedIdx, correctIdx) {
+function selectAnswer(selectedIdx, correctIdx) {
   // Clear auto-advance timer since user answered
   if (questionInterval) {
     clearInterval(questionInterval);
@@ -724,7 +816,8 @@ window.selectAnswer = function(selectedIdx, correctIdx) {
     startQuestionCycle(); // Restart timer for next question
   };
   mcqContainer.appendChild(nextBtn);
-};
+}
+window.selectAnswer = selectAnswer;
 
 async function startInstallation(dependencies) {
   addTerminalLine('', 'normal');
@@ -792,7 +885,7 @@ async function startInstallation(dependencies) {
 
   addTerminalLine('', 'normal');
   addTerminalLine('═══════════════════════════════════════', 'info');
-  addTerminalLine('All installations complete! Verifying...', 'success');
+  addTerminalLine('All installations complete!', 'success');
   addTerminalLine('═══════════════════════════════════════', 'info');
   
   // Quiz is already running, just stop auto-cycling
@@ -800,35 +893,82 @@ async function startInstallation(dependencies) {
     clearInterval(questionInterval);
   }
   
-  setTimeout(() => runVerification(dependencies), 1500);
+  // Show completion modal instead of auto-transitioning
+  window.pendingVerificationDeps = dependencies;
+  setTimeout(() => {
+    const cm = document.getElementById('complete-modal');
+    if (cm) {
+      cm.style.display = 'flex';
+    } else {
+      runVerification(dependencies);
+    }
+  }, 800);
 }
+
+window.proceedToVerification = function() {
+  const cm = document.getElementById('complete-modal');
+  if (cm) cm.style.display = 'none';
+  runVerification(window.pendingVerificationDeps || []);
+};
 
 async function runVerification(dependencies) {
   showStep(4);
-  verificationResults.innerHTML = '';
+  verificationResults.innerHTML = '<div style="text-align: center; padding: 2rem;"><p style="font-size: 1.2rem;">🔍 Verifying installations...</p></div>';
   let successCount = 0;
+  let verificationHtml = '';
 
   for (const dep of dependencies) {
     const result = await ipcRenderer.invoke('verify-installation', dep);
     successCount += result.success ? 1 : 0;
     
-    verificationResults.innerHTML += `
-      <div class="verification-item">
-        <div>
-          <h4>${dep.display_name}</h4>
-          <p>${result.success ? 'Working' : 'Failed'}</p>
+    const verifyCommand = dep.verify_command || 'No verification command';
+    const statusClass = result.success ? 'success' : 'error';
+    const statusIcon = result.success ? '✓' : '✗';
+    const statusText = result.success ? 'Installed' : 'Failed';
+    
+    // Build detail section
+    let detailHtml = '';
+    if (result.success) {
+      detailHtml = `
+        <div style="margin-top: 0.5rem; padding: 0.75rem; background: rgba(0, 255, 0, 0.05); border-left: 3px solid #51cf66; font-size: 0.9rem;">
+          <div style="color: var(--text-secondary); margin-bottom: 0.25rem;"><strong>Verification Command:</strong></div>
+          <code style="background: #000; color: #0f0; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem;">${verifyCommand}</code>
+          <div style="margin-top: 0.5rem; color: var(--text-secondary);"><strong>Version/Output:</strong></div>
+          <div style="color: #51cf66;">${result.actual || 'Installed successfully'}</div>
         </div>
-        <span>${result.success ? '✓' : '✗'}</span>
+      `;
+    } else {
+      detailHtml = `
+        <div style="margin-top: 0.5rem; padding: 0.75rem; background: rgba(255, 0, 0, 0.05); border-left: 3px solid #ff6b6b; font-size: 0.9rem;">
+          <div style="color: var(--text-secondary); margin-bottom: 0.25rem;"><strong>Verification Command:</strong></div>
+          <code style="background: #000; color: #f00; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.85rem;">${verifyCommand}</code>
+          <div style="margin-top: 0.5rem; color: var(--text-secondary);"><strong>Failure Reason:</strong></div>
+          <div style="color: #ff6b6b;">${result.message || result.actual || 'Verification failed - package not found or not working correctly'}</div>
+        </div>
+      `;
+    }
+    
+    verificationHtml += `
+      <div class="verification-item" style="border-left: 3px solid ${result.success ? '#51cf66' : '#ff6b6b'}; margin-bottom: 1rem; background: var(--bg-card); padding: 1rem; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h4 style="margin: 0; font-size: 1.1rem;">${dep.display_name || dep.name}</h4>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: var(--text-secondary);">${dep.description || ''}</p>
+          </div>
+          <span style="font-size: 1.5rem; color: ${result.success ? '#51cf66' : '#ff6b6b'};">${statusIcon}</span>
+        </div>
+        ${detailHtml}
       </div>
     `;
   }
 
   verificationResults.innerHTML = `
     <div class="description-box">
-      <h3>${successCount === dependencies.length ? 'Done!' : 'Issues'}</h3>
-      <p>${successCount}/${dependencies.length} installed</p>
+      <h3>${successCount === dependencies.length ? '🎉 All Verified!' : '⚠️ Some Issues Detected'}</h3>
+      <p style="font-size: 1.1rem; margin: 0.5rem 0;">${successCount}/${dependencies.length} packages verified successfully</p>
+      ${successCount < dependencies.length ? '<p style="font-size: 0.9rem; color: var(--text-secondary);">Check the details below for failed verifications</p>' : ''}
     </div>
-  ` + verificationResults.innerHTML;
+  ` + verificationHtml;
 }
 
 function showStep(stepNumber) {
@@ -855,7 +995,7 @@ function showStep(stepNumber) {
 
 // ──── Mode Toggle (Essential vs Full) ────
 
-window.setMode = function(mode) {
+function setMode(mode) {
   currentMode = mode;
   document.getElementById('mode-essential').classList.toggle('active', mode === 'essential');
   document.getElementById('mode-full').classList.toggle('active', mode === 'full');
@@ -864,7 +1004,8 @@ window.setMode = function(mode) {
   if (analysisResult && analysisResult.dependencies) {
     displayDependencies(analysisResult.dependencies);
   }
-};
+}
+window.setMode = setMode;
 
 // ──── Conflict Warnings ────
 
@@ -889,7 +1030,7 @@ function displayConflicts(conflicts) {
 
 // ──── Uninstaller Placeholder ────
 
-window.showUninstallPlaceholder = async function() {
+async function showUninstallPlaceholder() {
   if (installedPackagesHistory.length === 0) {
     alert('No packages installed this session. Install something first!');
     return;
@@ -959,15 +1100,18 @@ window.showUninstallPlaceholder = async function() {
       </div>
     `;
   }
-};
+}
+window.showUninstallPlaceholder = showUninstallPlaceholder;
 
 window.closeUninstallModal = function() {
-  const modals = document.querySelectorAll('.modal');
+  // Only remove dynamically created modals, not static ones
+  const modals = document.querySelectorAll('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal)');
   modals.forEach(m => m.remove());
 };
 
 window.executeUninstall = async function() {
-  const modal = document.querySelector('.modal');
+  const modal = document.querySelector('.modal:not(#safety-modal):not(#complete-modal):not(#welcome-modal)');
+  if (!modal) return;
   modal.innerHTML = `
     <div class="modal-content">
       <h2>🗑️ Uninstalling...</h2>

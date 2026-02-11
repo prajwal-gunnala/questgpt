@@ -92,8 +92,8 @@
         <!-- Mode Toggle (Minimal vs Full) -->
         <div class="mode-toggle-bar" id="mode-toggle-bar" style="display: none;">
           <span class="mode-label">Mode:</span>
-          <button class="mode-btn active" id="mode-essential" onclick="setMode('essential')">Essential Only</button>
-          <button class="mode-btn" id="mode-full" onclick="setMode('full')">Full Stack</button>
+          <button class="mode-btn active" id="mode-essential">Essential Only</button>
+          <button class="mode-btn" id="mode-full">Full Stack</button>
         </div>
 
         <!-- Conflict Warnings -->
@@ -111,7 +111,7 @@
         <div id="dependencies-grid" class="dependencies-grid"></div>
         <div class="action-bar">
           <button id="back-btn" class="btn btn-secondary">← Back</button>
-          <button id="uninstall-selected-btn" class="btn btn-secondary" style="background: #c00; border-color: #c00; color: #fff; display: none;" onclick="uninstallSelected()">
+          <button id="uninstall-selected-btn" class="btn btn-secondary" style="background: #c00; border-color: #c00; color: #fff; display: none;">
             Uninstall Selected
           </button>
           <button id="install-btn" class="btn btn-primary" disabled>Select Something</button>
@@ -147,12 +147,31 @@
             </div>
           </div>
           
-          <!-- Right Side: Questions -->
+          <!-- Right Side: Questions + Chatbot -->
           <div class="questions-section">
             <div id="mcq-section" class="mcq-content">
               <p>Generating questions...</p>
             </div>
             <div id="progress-section" class="progress-text"></div>
+
+            <!-- Chatbot Placeholder -->
+            <div class="chatbot-placeholder" id="chatbot-section">
+              <div class="chatbot-header">
+                <span>💬</span>
+                <span>Ask Quest GPT</span>
+                <span class="chatbot-badge">Coming Soon</span>
+              </div>
+              <div class="chatbot-body">
+                <div class="chatbot-message bot">
+                  <span class="chatbot-avatar">🤖</span>
+                  <p>Hey! I can answer questions about what's being installed. Ask me anything — "What does this package do?", "Why do I need sudo?", etc.</p>
+                </div>
+              </div>
+              <div class="chatbot-input-area">
+                <input type="text" class="chatbot-input" placeholder="Ask about your installation..." disabled>
+                <button class="chatbot-send-btn" disabled>→</button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -172,6 +191,18 @@
     <footer class="footer">
       <p>Quest GPT • Built with AI, sass, and minimal design • Linux Edition</p>
     </footer>
+
+    <!-- Installation Complete Modal -->
+    <div class="modal" id="complete-modal" style="display: none;">
+      <div class="modal-content" onclick="event.stopPropagation()">
+        <h2>✅ Installation Complete</h2>
+        <p>Your installs finished successfully. Want me to verify everything now?</p>
+        <div class="safety-actions">
+          <button class="btn btn-secondary" onclick="this.closest('.modal').style.display='none'">Close</button>
+          <button class="btn btn-primary" onclick="proceedToVerification()">Continue</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Safety Preview Modal -->
     <div class="modal" id="safety-modal" style="display: none;">
