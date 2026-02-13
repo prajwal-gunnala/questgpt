@@ -10,15 +10,61 @@ class Verifier {
    * Verify a single installation
    */
   async verifyInstallation(dependency) {
-    const { name, verify_command, expected_pattern } = dependency;
+    const { name, display_name, verify_command, expected_pattern } = dependency;
 
     try {
-      // Execute verification command
-      const output = execSync(verify_command, {
+      const isWindows = process.platform === 'win32';
+      
+      // Execute verification command with appropriate shell
+      const execOptions = {
         encoding: 'utf8',
         timeout: 5000,
         stdio: ['ignore', 'pipe', 'pipe']
-      }).trim();
+      };
+      
+      // Use cmd.exe on Windows for better compatibility
+      if (isWindows) {
+        execOptions.shell = 'cmd.exe';
+      }
+      
+      // Try the provided verify command first
+      let output = '';
+      let verificationSuccess = false;
+      
+      try {
+        output = execSync(verify_command, execOptions).toString().trim();
+        verificationSuccess = true;
+      } catch (primaryError) {
+        // Primary verification failed, try alternative methods
+        if (isWindows) {
+          // On Windows, try to find the command using 'where'
+          const commandName = this.extractCommandName(verify_command);
+          if (commandName) {
+            try {
+              const whereOutput = execSync(`where ${commandName}`, execOptions).toString().trim();
+              if (whereOutput) {
+                // Command exists, try to get version
+                try {
+                  output = execSync(`${commandName} --version`, execOptions).toString().trim();
+                  verificationSuccess = true;
+                } catch (versionError) {
+                  // Some commands don't support --version, but they exist
+                  output = `Found at: ${whereOutput}`;
+                  verificationSuccess = true;
+                }
+              }
+            } catch (whereError) {
+              // Command not found
+              output = '';
+            }
+          }
+        }
+        
+        // If still failed, throw the original error
+        if (!verificationSuccess) {
+          throw primaryError;
+        }
+      }
 
       // Check if output matches expected pattern
       let matches = true;
@@ -37,7 +83,7 @@ class Verifier {
 
       return {
         name,
-        success: matches,
+        success: matches && verificationSuccess,
         installed: true,
         expected: expected_pattern || 'Any version',
         actual: actualVersion,
@@ -53,9 +99,29 @@ class Verifier {
         expected: expected_pattern || 'Any version',
         actual: 'Not installed',
         error: error.message,
-        message: 'Installation verification failed'
+        message: 'Installation verification failed - package not found'
       };
     }
+  }
+
+  /**
+   * Extract command name from a verification command
+   * Examples: 
+   *   "git --version" -> "git"
+   *   "python -c \"import pandas\"" -> "python"
+   *   "where fd" -> "fd"
+   */
+  extractCommandName(verifyCommand) {
+    if (!verifyCommand) return null;
+    
+    // Remove common prefixes
+    let cmd = verifyCommand.trim();
+    cmd = cmd.replace(/^where\s+/, '');
+    cmd = cmd.replace(/^which\s+/, '');
+    
+    // Get first word (the actual command)
+    const firstWord = cmd.split(/\s+/)[0];
+    return firstWord || null;
   }
 
   /**
@@ -103,8 +169,11 @@ class Verifier {
    * Quick check if something is installed
    */
   isInstalled(command) {
+    const isWindows = process.platform === 'win32';
+    const checkCmd = isWindows ? 'where' : 'which';
+    
     try {
-      execSync(`which ${command}`, { stdio: 'ignore' });
+      execSync(`${checkCmd} ${command}`, { stdio: 'ignore' });
       return true;
     } catch (error) {
       return false;
@@ -116,11 +185,19 @@ class Verifier {
    */
   getVersion(command, versionFlag = '--version') {
     try {
-      const output = execSync(`${command} ${versionFlag}`, {
+      const isWindows = process.platform === 'win32';
+      
+      const execOptions = {
         encoding: 'utf8',
         timeout: 3000,
         stdio: ['ignore', 'pipe', 'pipe']
-      }).trim();
+      };
+      
+      if (isWindows) {
+        execOptions.shell = 'cmd.exe';
+      }
+      
+      const output = execSync(`${command} ${versionFlag}`, execOptions).trim();
 
       // Extract version number
       const versionMatch = output.match(/(\d+\.?\d*\.?\d*)/);

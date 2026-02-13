@@ -8,17 +8,21 @@
     "wizard": "node wizard.js",
     "chat": "node chatbot.js",
     "app": "electron .",
+    "clean": "node -e \"const fs = require('fs'); const path = require('path'); const dir = path.join(__dirname, 'build'); if (fs.existsSync(dir)) { fs.rmSync(dir, { recursive: true, force: true }); console.log('Cleaned build folder'); }\"",
+    "prebuild": "npm run clean",
     "build": "electron-builder",
     "build:linux": "electron-builder --linux",
-    "build:win": "electron-builder --win",
+    "build:win": "npm run clean && electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:all": "electron-builder -mwl"
   },
   "build": {
     "appId": "com.questgpt.installer",
     "productName": "QuestGPT",
+    "asar": false,
     "directories": {
-      "output": "dist"
+      "output": "build",
+      "buildResources": "assets"
     },
     "files": [
       "electron-main.js",
@@ -41,10 +45,31 @@
     },
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
       ],
-      "icon": "assets/logo.png"
+      "icon": "assets/logo.png",
+      "requestedExecutionLevel": "requireAdministrator",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "QuestGPT",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}.${ext}"
     },
     "mac": {
       "target": [

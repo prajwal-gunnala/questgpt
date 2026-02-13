@@ -21,11 +21,11 @@ class SystemDetector {
     
     switch (platform) {
       case 'linux':
-        return 'linux';
+        return 'Linux';
       case 'darwin':
-        return 'macos';
+        return 'macOS';
       case 'win32':
-        return 'windows';
+        return 'Windows';
       default:
         return 'unknown';
     }
@@ -64,10 +64,38 @@ class SystemDetector {
    * Detect package manager
    */
   getPackageManager() {
-    if (this.platform !== 'linux') {
-      return this.platform === 'darwin' ? 'brew' : 'unknown';
+    // Windows package managers
+    if (this.platform === 'win32') {
+      const winManagers = [
+        { cmd: 'choco', name: 'choco' },
+        { cmd: 'winget', name: 'winget' },
+        { cmd: 'scoop', name: 'scoop' }
+      ];
+
+      for (const manager of winManagers) {
+        try {
+          execSync(`where ${manager.cmd}`, { stdio: 'ignore' });
+          return manager.name;
+        } catch (error) {
+          continue;
+        }
+      }
+      
+      // No package manager found on Windows - default to choco
+      return 'choco'; // Default to chocolatey for Windows
     }
 
+    // macOS package manager
+    if (this.platform === 'darwin') {
+      try {
+        execSync('which brew', { stdio: 'ignore' });
+        return 'brew';
+      } catch (error) {
+        return 'brew'; // Default to brew for macOS
+      }
+    }
+
+    // Linux package managers
     const managers = [
       { cmd: 'apt', name: 'apt' },
       { cmd: 'apt-get', name: 'apt' },
@@ -106,9 +134,22 @@ class SystemDetector {
   }
 
   /**
-   * Check if running as sudo/root
+   * Check if running as sudo/root (Linux/Mac only)
+   * For Windows, check if running as Administrator
    */
   isSudo() {
+    // Windows: Check if running as Administrator
+    if (this.platform === 'win32') {
+      try {
+        // Try to execute a command that requires admin privileges
+        execSync('net session', { stdio: 'ignore' });
+        return true; // Running as Administrator
+      } catch (error) {
+        return false; // Not running as Administrator
+      }
+    }
+    
+    // Linux/Mac: Check if root user
     try {
       return process.getuid && process.getuid() === 0;
     } catch (error) {

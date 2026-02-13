@@ -14,6 +14,11 @@ let pendingInstallDeps = null; // deps waiting for safety confirmation
 let installedPackagesHistory = []; // track what we installed this session
 let selectedForUninstall = new Set(); // packages selected for uninstall
 
+// Platform detection
+let isWindows = false;
+let isMac = false;
+let isLinux = false;
+
 window.closeWelcome = function() {
   document.getElementById('welcome-modal').style.display = 'none';
 };
@@ -182,6 +187,21 @@ async function init() {
   
   try {
     systemInfo = await ipcRenderer.invoke('detect-system');
+    
+    // Detect platform
+    const osType = systemInfo.os.toLowerCase();
+    isWindows = osType.includes('win');
+    isMac = osType.includes('darwin') || osType.includes('mac');
+    isLinux = !isWindows && !isMac;
+    
+    // Warn Windows users if no package manager detected
+    if (isWindows && systemInfo.packageManager === 'choco') {
+      console.warn('⚠️ Windows detected. Make sure you have Chocolatey, Winget, or Scoop installed.');
+      console.warn('💡 Install Chocolatey from: https://chocolatey.org/install');
+      console.warn('💡 Or use Winget (built into Windows 11+)');
+      console.warn('⚠️ You may need to run this app as Administrator for installations to work.');
+    }
+    
     displaySystemInfo();
   } catch (error) {
     systemInfoDiv.innerHTML = `<span>Failed</span>`;
@@ -190,6 +210,35 @@ async function init() {
 
 function displaySystemInfo() {
   systemInfoDiv.innerHTML = `${systemInfo.os} • ${systemInfo.packageManager} • ${systemInfo.specs.arch}`;
+  
+  // Add Windows warning banner if needed
+  if (isWindows && systemInfo.packageManager === 'choco') {
+    const existingBanner = document.getElementById('windows-warning-banner');
+    if (!existingBanner) {
+      const banner = document.createElement('div');
+      banner.id = 'windows-warning-banner';
+      banner.style.cssText = `
+        background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+        color: white;
+        padding: 1rem 1.5rem;
+        margin: 1rem 0;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      `;
+      banner.innerHTML = `
+        <strong>⚠️ Windows User Notice:</strong><br>
+        Please ensure:<br>
+        • You have <strong>Chocolatey</strong> installed (<a href="https://chocolatey.org/install" target="_blank" style="color: #fff; text-decoration: underline;">install here</a>) or use <strong>Winget</strong> (Windows 11+)<br>
+        • This app is running <strong>as Administrator</strong> (right-click → Run as Administrator)<br>
+        • Commands will be executed in <strong>cmd.exe</strong> (NO sudo needed - Windows uses Administrator mode)<br>
+        ${!systemInfo.isSudo ? '<br><strong style="background: rgba(0,0,0,0.2); padding: 0.3rem 0.5rem; border-radius: 4px;">❌ Currently NOT running as Administrator - installations may fail!</strong>' : '<br><strong style="background: rgba(0,0,0,0.2); padding: 0.3rem 0.5rem; border-radius: 4px;">✅ Running as Administrator</strong>'}
+      `;
+      const mainContent = document.querySelector('.main-content');
+      mainContent.insertBefore(banner, mainContent.firstChild);
+    }
+  }
 }
 
 searchBtn.addEventListener('click', handleSearch);
@@ -231,6 +280,12 @@ async function handleSearch() {
 
   try {
     analysisResult = await ipcRenderer.invoke('analyze-request', query, systemInfo);
+    if (analysisResult && analysisResult.error) {
+      throw new Error(analysisResult.message || 'Failed to analyze request');
+    }
+    if (!analysisResult || !Array.isArray(analysisResult.dependencies)) {
+      throw new Error('Invalid analysis response: missing dependencies');
+    }
     
     // Check if we have stack options
     if (analysisResult.type === 'stack' && analysisResult.stack_options && analysisResult.stack_options.length > 0) {
@@ -462,8 +517,8 @@ async function uninstallSelected() {
     return;
   }
 
-  // Prompt for sudo password if not available
-  if (!sudoPassword) {
+  // Prompt for sudo password if not available (Linux/Mac only)
+  if (!isWindows && !sudoPassword) {
     const pw = prompt('Enter your sudo password to proceed with uninstall:');
     if (!pw) return;
     sudoPassword = pw;
@@ -740,9 +795,9 @@ async function proceedWithInstall() {
     `;
   }
   
-  // STEP 4: Ask for password to start installation
+  // STEP 4: Ask for password to start installation (Linux/Mac only)
   // Installation will run while user takes quiz
-  if (!sudoPassword) {
+  if (!isWindows && !sudoPassword) {
     addTerminalLine('🔐 Requesting sudo password to begin installation...', 'info');
     const inputArea = document.getElementById('terminal-input-area');
     inputArea.style.display = 'flex';
@@ -763,7 +818,10 @@ async function proceedWithInstall() {
       }
     }, 100);
   } else {
-    // Already have password, start immediately
+    // Windows doesn't need sudo, or already have password on Linux/Mac
+    if (isWindows) {
+      addTerminalLine('Starting installation (Windows - no sudo required)...', 'info');
+    }
     startInstallation(depsToInstall);
     if (allQuestions.length > 0) {
       startQuestionCycle();

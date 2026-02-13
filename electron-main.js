@@ -2,9 +2,10 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-// Load environment variables from .env file
+// Load environment variables from .env file (silent mode)
 require('dotenv').config({
-  path: path.join(__dirname, '.env')
+  path: path.join(__dirname, '.env'),
+  silent: true
 });
 
 // Try to load API key from config.json if .env doesn't have it
@@ -95,7 +96,8 @@ const uninstaller = new Uninstaller();
 
 // Detect system
 ipcMain.handle('detect-system', async () => {
-  return systemDetector.getSystemInfo();
+  const sysInfo = systemDetector.getSystemInfo();
+  return sysInfo;
 });
 
 // Classify commands by risk level before installation
@@ -161,7 +163,9 @@ ipcMain.handle('analyze-request', async (event, userRequest, systemInfo) => {
     if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_api_key_here') {
       throw new Error('GEMINI_API_KEY is not configured. Please set your API key in the .env file.');
     }
-    return await geminiInstaller.analyzeRequest(userRequest, systemInfo);
+    
+    const result = await geminiInstaller.analyzeRequest(userRequest, systemInfo);
+    return result;
   } catch (error) {
     console.error('Error in analyze-request:', error);
     // Return a structured error that the UI can display
@@ -205,14 +209,35 @@ ipcMain.handle('save-api-key', async (event, apiKey) => {
 // Install dependency with progress
 ipcMain.handle('install-dependency', async (event, dependency, sudoPassword) => {
   return new Promise((resolve, reject) => {
+    // Windows doesn't need sudo, check for Administrator instead
+    const isWindows = process.platform === 'win32';
+    const actualPassword = isWindows ? null : sudoPassword;
+    
+    // Check for Windows Administrator privileges
+    if (isWindows) {
+      const sysInfo = systemDetector.getSystemInfo();
+      if (!sysInfo.isSudo) {
+        // Warn but continue - some commands (pip, npm) might still work
+        mainWindow.webContents.send('terminal-output', { 
+          type: 'warning', 
+          text: '⚠️ WARNING: Not running as Administrator. Some installations may fail.' 
+        });
+        mainWindow.webContents.send('terminal-output', { 
+          type: 'info', 
+          text: '💡 TIP: Right-click the app → "Run as Administrator" for best results.' 
+        });
+      }
+    }
+    
     // Send terminal output to renderer
     installer.installDependency(dependency, (progress) => {
       if (progress.type === 'output') {
         mainWindow.webContents.send('terminal-output', progress.data);
-      } else if (progress.type === 'password-required') {
+      } else if (progress.type === 'password-required' && !isWindows) {
+        // Only request password on Linux/Mac
         mainWindow.webContents.send('sudo-password-required');
       }
-    }, sudoPassword).then(result => {
+    }, actualPassword).then(result => {
       resolve(result);
     }).catch(error => {
       mainWindow.webContents.send('terminal-output', { type: 'error', text: error.message });

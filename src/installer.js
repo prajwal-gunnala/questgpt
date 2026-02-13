@@ -18,10 +18,15 @@ class Installer {
    */
   async executeCommand(command, onOutput = null, sudoPassword = null) {
     return new Promise((resolve, reject) => {
-      console.log(chalk.cyan(`\n🔧 Executing: ${command}\n`));
+      console.log(chalk.cyan(`\n🔧 Platform: ${process.platform}`));
+      console.log(chalk.cyan(`🔧 Executing: ${command}\n`));
       
       // Send command to UI
       if (onOutput) {
+        onOutput({ 
+          type: 'output', 
+          data: { type: 'info', text: `🔧 Platform: ${process.platform}` } 
+        });
         onOutput({ 
           type: 'output', 
           data: { type: 'info', text: `🔧 Executing: ${command}` } 
@@ -32,13 +37,51 @@ class Installer {
         });
       }
 
-      // If command needs sudo and we have password, pipe it
+      // Platform detection
+      const isWindows = process.platform === 'win32';
+      const isMac = process.platform === 'darwin';
+      
       let finalCommand = command;
-      if (sudoPassword && command.includes('sudo')) {
+      let execOptions = { 
+        maxBuffer: 1024 * 1024 * 10
+      };
+      
+      // Handle sudo for Linux/Mac only
+      if (!isWindows && sudoPassword && command.includes('sudo')) {
         finalCommand = `echo '${sudoPassword}' | sudo -S ${command.replace(/^sudo\s+/, '')}`;
       }
+      
+      // Windows: Remove sudo (shouldn't exist) and use cmd.exe
+      if (isWindows) {
+        // Check if command requires elevated privileges (choco, winget system installs)
+        const requiresAdmin = finalCommand.includes('choco') || 
+                             (finalCommand.includes('winget') && !finalCommand.includes('list'));
+        
+        // Remove any sudo references (shouldn't be there but just in case)
+        if (finalCommand.includes('sudo')) {
+          console.warn('⚠️ WARNING: sudo command detected on Windows - removing it');
+          if (onOutput) {
+            onOutput({ 
+              type: 'output', 
+              data: { type: 'warning', text: '⚠️ Note: sudo removed from command (Windows uses Administrator mode instead)' } 
+            });
+          }
+        }
+        finalCommand = finalCommand.replace(/sudo\s+/gi, '');
+        
+        // Warn if command likely needs admin but we might not have it
+        if (requiresAdmin && onOutput) {
+          onOutput({ 
+            type: 'output', 
+            data: { type: 'info', text: 'ℹ️ This command requires Administrator privileges. Make sure app is running as Administrator.' } 
+          });
+        }
+        
+        // Use cmd.exe for better compatibility with choco, winget, etc.
+        execOptions.shell = 'cmd.exe';
+      }
 
-      const child = exec(finalCommand, { maxBuffer: 1024 * 1024 * 10 });
+      const child = exec(finalCommand, execOptions);
 
       let stdout = '';
       let stderr = '';
@@ -94,7 +137,24 @@ class Installer {
         if (code === 0) {
           resolve({ stdout, stderr, code });
         } else {
-          reject(new Error(`Command failed with exit code ${code}\n${stderr || stdout}`));
+          // Check for common Windows permission errors
+          const errorOutput = stderr || stdout || '';
+          
+          if (isWindows && (errorOutput.includes('Access is denied') || 
+                           errorOutput.includes('requires elevation') ||
+                           errorOutput.includes('administrator'))) {
+            const adminError = new Error(
+              `Installation failed: Administrator privileges required.\n\n` +
+              `Please close this app and restart it by:\n` +
+              `1. Right-click on the app\n` +
+              `2. Select "Run as Administrator"\n` +
+              `3. Try again\n\n` +
+              `Original error: ${errorOutput.substring(0, 200)}`
+            );
+            reject(adminError);
+          } else {
+            reject(new Error(`Command failed with exit code ${code}\n${stderr || stdout}`));
+          }
         }
       });
 
@@ -251,8 +311,11 @@ class Installer {
    * Check if a command exists
    */
   commandExists(command) {
+    const isWindows = process.platform === 'win32';
+    const checkCmd = isWindows ? 'where' : 'which';
+    
     try {
-      execSync(`which ${command}`, { stdio: 'ignore' });
+      execSync(`${checkCmd} ${command}`, { stdio: 'ignore' });
       return true;
     } catch (error) {
       return false;
