@@ -75,40 +75,64 @@ class UpdateDetector {
     }
 
     /**
-     * Parse winget upgrade output
+     * Parse winget upgrade output (FIXED: handles progress bar prefix)
      * Format: Name  Id  Version  Available
+     * 
+     * CRITICAL: winget output from exec() may have:
+     * 1. Progress bar garbage prefix (e.g., " ████████▒                         34%")
+     * 2. Line wrapping around 103 characters
      */
     parseWingetUpgrade(output) {
         const lines = output.split('\n');
         const updates = [];
         
+        // Find header line and detect column offset from garbage prefix
         let startIndex = 0;
+        let headerOffset = 0; // How many chars to skip from the garbage prefix
+        
         for (let i = 0; i < lines.length; i++) {
-            if (lines[i].includes('Name') && lines[i].includes('Available')) {
-                startIndex = i + 2;
+            const namePos = lines[i].indexOf('Name');
+            if (namePos !== -1 && lines[i].includes('Available')) {
+                headerOffset = namePos; // Position where "Name" actually starts
+                startIndex = i + 2; // Skip header and separator line
                 break;
             }
         }
 
         for (let i = startIndex; i < lines.length; i++) {
-            const line = lines[i].trim();
+            let line = lines[i];
+            if (!line || line.trim().length === 0) continue;
+            
+            // Strip the garbage prefix if detected
+            if (headerOffset > 0 && line.length > headerOffset) {
+                line = line.substring(headerOffset);
+            }
+            
+            line = line.trim();
             if (!line) continue;
 
             try {
+                // Split by 2+ spaces (winget uses column-based alignment)
                 const parts = line.split(/\s{2,}/);
                 if (parts.length >= 4) {
-                    updates.push({
+                    const update = {
                         name: parts[0]?.trim(),
                         package_id: parts[1]?.trim(),
                         current: parts[2]?.trim(),
                         available: parts[3]?.trim()
-                    });
+                    };
+                    
+                    // Only add if we have valid data
+                    if (update.name && update.available && update.package_id) {
+                        updates.push(update);
+                    }
                 }
             } catch (err) {
                 continue;
             }
         }
 
+        console.log(`[UpdateDetector] Parsed ${updates.length} updates from winget upgrade`);
         return updates.filter(u => u.name && u.available);
     }
 

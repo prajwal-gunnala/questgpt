@@ -57,7 +57,8 @@ function createWindow() {
     height: 800,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      sandbox: false
     },
     icon: path.join(__dirname, 'assets/icon.png')
   });
@@ -521,8 +522,8 @@ ipcMain.handle('winget-search', async (event, query) => {
     return new Promise((resolve, reject) => {
       const { exec } = require('child_process');
       
-      // Execute winget search with query
-      exec(`winget search "${query}" --accept-source-agreements`, { timeout: 30000 }, (error, stdout, stderr) => {
+      // Execute winget search with query — disable interactivity for clean output
+      exec(`winget search "${query}" --accept-source-agreements --disable-interactivity`, { timeout: 30000, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
         if (error && !stdout) {
           console.error(`[Main] Winget search error:`, error);
           resolve([]); // Return empty array instead of rejecting
@@ -546,17 +547,21 @@ ipcMain.handle('winget-search', async (event, query) => {
   }
 });
 
-// Parse winget search output
+// Parse winget search output — handles Name, Id, Version, [Match], Source columns
 function parseWingetSearchOutput(output) {
   const lines = output.split('\n');
   const packages = [];
   
-  // Find the header line (contains "Name", "Id", "Version", "Source")
+  // Find the header line (contains "Name", "Id", "Version")
+  // Note: LINE[0] often has progress-bar garbage before the header text,
+  // so we locate the "Name" offset and strip everything before it.
   let headerIndex = -1;
+  let headerOffset = 0;
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.includes('Name') && line.includes('Id') && line.includes('Version')) {
+    const namePos = lines[i].indexOf('Name');
+    if (namePos >= 0 && lines[i].indexOf('Id') > namePos && lines[i].includes('Version')) {
       headerIndex = i;
+      headerOffset = namePos;
       break;
     }
   }
@@ -566,58 +571,72 @@ function parseWingetSearchOutput(output) {
     return [];
   }
   
-  // Parse the header to find column positions
-  const headerLine = lines[headerIndex];
-  const nameIdx = headerLine.indexOf('Name');
-  const idIdx = headerLine.indexOf('Id');
-  const versionIdx = headerLine.indexOf('Version');
-  const sourceIdx = headerLine.indexOf('Source');
+  // Get clean header — column positions here match the data lines directly
+  const cleanHeader = lines[headerIndex].substring(headerOffset);
   
-  // Skip header and separator line
-  const dataStartIdx = headerIndex + 2;
+  const nameIdx = 0;
+  const idIdx = cleanHeader.indexOf('Id');
+  const versionIdx = cleanHeader.indexOf('Version');
+  const matchIdx = cleanHeader.indexOf('Match');   // may be -1
+  const sourceIdx = cleanHeader.indexOf('Source');  // may be -1
   
-  // Parse each package line
+  if (idIdx < 0 || versionIdx < 0) {
+    console.log('[Main] Could not determine column positions');
+    return [];
+  }
+  
+  // Version ends at Match or Source (whichever exists first after Version)
+  let versionEnd = -1;
+  if (matchIdx > versionIdx) versionEnd = matchIdx;
+  else if (sourceIdx > versionIdx) versionEnd = sourceIdx;
+  
+  // Find the separator line (------) to know where data starts
+  let dataStartIdx = headerIndex + 1;
+  for (let i = headerIndex + 1; i < Math.min(headerIndex + 4, lines.length); i++) {
+    if (lines[i].match(/^-{5,}/)) {
+      dataStartIdx = i + 1;
+      break;
+    }
+  }
+  
+  // Parse each data line
   for (let i = dataStartIdx; i < lines.length; i++) {
     const line = lines[i];
     
-    // Stop at empty line or footer
-    if (!line.trim() || line.includes('---')) continue;
+    // Skip empty, short, footer, or truncation lines
+    if (!line.trim() || line.trim().length < 10) continue;
+    if (line.match(/^\d+ package/i) || line.includes('additional entries')) continue;
     
     try {
-      // Extract fields based on column positions
-      let name, id, version, source;
+      const name = line.substring(nameIdx, idIdx).trim();
+      const id = line.substring(idIdx, versionIdx).trim();
       
-      if (idIdx > nameIdx) {
-        name = line.substring(nameIdx, idIdx).trim();
+      let version = 'Unknown';
+      if (versionEnd > 0 && line.length >= versionEnd) {
+        version = line.substring(versionIdx, versionEnd).trim() || 'Unknown';
+      } else if (versionEnd > 0) {
+        version = line.substring(versionIdx).trim().split(/\s+/)[0] || 'Unknown';
       } else {
-        name = line.substring(nameIdx, versionIdx).trim();
+        version = line.substring(versionIdx).trim().split(/\s+/)[0] || 'Unknown';
       }
       
-      if (versionIdx > idIdx) {
-        id = line.substring(idIdx, versionIdx).trim();
-      } else {
-        id = line.substring(idIdx, sourceIdx).trim();
-      }
-      
-      if (sourceIdx > versionIdx) {
-        version = line.substring(versionIdx, sourceIdx).trim();
-        source = line.substring(sourceIdx).trim();
-      } else {
-        version = line.substring(versionIdx).trim();
-        source = 'winget';
+      let source = 'winget';
+      if (sourceIdx > 0 && line.length > sourceIdx) {
+        const s = line.substring(sourceIdx).trim();
+        if (s) source = s;
       }
       
       // Skip if essential fields are missing
-      if (!name || !id || !version) continue;
+      if (!name || !id) continue;
       
       packages.push({
-        name: name,
-        id: id,
-        version: version,
-        source: source || 'winget'
+        name: name.replace(/\u2026/g, '...'),
+        id: id.replace(/\u2026/g, '...'),
+        version,
+        source
       });
     } catch (parseError) {
-      console.log(`[Main] Failed to parse line: ${line}`);
+      console.log(`[Main] Failed to parse line ${i}: ${line}`);
       continue;
     }
   }

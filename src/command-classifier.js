@@ -17,10 +17,12 @@ class CommandClassifier {
           /mkfs/,                                 // format disk
           /dd\s+if=/,                             // raw disk write
           />\s*\/dev\/sd/,                        // overwrite block device
-          /chmod\s+-R\s+777\s+\//,               // world-writable root          /format\s+[A-Za-z]:/i,                  // Windows: format C:
+          /chmod\s+-R\s+777\s+\//,               // world-writable root
+          /format\s+[A-Za-z]:/i,                  // Windows: format C:
           /diskpart/i,                             // Windows: disk partitioning
           /del\s+\/[sq].*[A-Za-z]:\\/i,           // Windows: del /s /q C:\
-          /Remove-Item.*-Recurse.*-Force.*[A-Za-z]:\\/i, // PowerShell destructive        ],
+          /Remove-Item.*-Recurse.*-Force.*[A-Za-z]:\\/i, // PowerShell destructive
+        ],
         description: 'This command can cause irreversible damage to your system.'
       },
 

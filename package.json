@@ -97,7 +97,7 @@
     "dotenv": "^17.2.3"
   },
   "devDependencies": {
-    "electron": "^28.3.3",
+    "electron": "^35.0.1",
     "electron-builder": "^24.9.1"
   }
 }

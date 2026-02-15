@@ -13,11 +13,19 @@ let currentMode = 'full'; // 'essential' or 'full'
 let pendingInstallDeps = null; // deps waiting for safety confirmation
 let installedPackagesHistory = []; // track what we installed this session
 let selectedForUninstall = new Set(); // packages selected for uninstall
+let isWingetFlow = false; // track whether results came from winget search or AI flow
 
 // Platform detection
 let isWindows = false;
 let isMac = false;
 let isLinux = false;
+
+// HTML escape helper to prevent XSS
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
 
 window.closeWelcome = function() {
   document.getElementById('welcome-modal').style.display = 'none';
@@ -305,31 +313,73 @@ async function init() {
 // Initialize environment and load stats
 async function initializeEnvironment() {
   try {
-    const stats = await ipcRenderer.invoke('get-stats');
-    updateDashboard(stats);
-    document.getElementById('env-dashboard').style.display = 'block';
+    // Don't scan on startup - wait for user to click Scan System
     document.getElementById('quick-search-section').style.display = 'block';
-    console.log('[Renderer] Environment initialized:', stats);
+    // Homepage state: hide progress indicator and main content
+    document.querySelector('.progress-indicator').style.display = 'none';
+    document.querySelector('.main-content').style.display = 'none';
+    console.log('[Renderer] Environment initialized - ready for manual scan');
   } catch (error) {
     console.error('[Renderer] Environment init failed:', error);
+    // Still show quick search even if stats fail
+    document.getElementById('quick-search-section').style.display = 'block';
+    document.querySelector('.progress-indicator').style.display = 'none';
+    document.querySelector('.main-content').style.display = 'none';
   }
 }
 
+// Scan system for installed packages
+window.scanSystem = async function() {
+  const scanBtn = document.getElementById('scan-system-btn');
+  const manageBtn = document.getElementById('manage-packages-btn');
+  const originalText = scanBtn.textContent;
+  
+  try {
+    scanBtn.textContent = '⏳ Scanning...';
+    scanBtn.disabled = true;
+    
+    // Trigger environment scan
+    const result = await ipcRenderer.invoke('scan-environment');
+    console.log('[Renderer] Scanned:', result.count, 'packages');
+    
+    // Get updated stats
+    const stats = await ipcRenderer.invoke('get-stats');
+    updateDashboard(stats);
+    
+    // Enable manage packages button
+    manageBtn.disabled = false;
+    
+    // Change button to "Scan Again"
+    scanBtn.textContent = '🔄 Scan Again';
+    scanBtn.disabled = false;
+    
+  } catch (error) {
+    console.error('[Renderer] Scan failed:', error);
+    scanBtn.textContent = '❌ Scan Failed';
+    setTimeout(() => {
+      scanBtn.textContent = originalText;
+      scanBtn.disabled = false;
+    }, 2000);
+  }
+};
+
 // Update dashboard with stats
 function updateDashboard(stats) {
-  document.getElementById('stat-tools').textContent = stats.total_tools || 0;
-  document.getElementById('stat-updates').textContent = stats.updates_available || 0;
-  document.getElementById('stat-installs').textContent = stats.total_installations || 0;
+  const installed = document.getElementById('stat-installed');
+  const updates = document.getElementById('stat-updates');
+  if (installed) installed.textContent = stats.total_tools || 0;
+  if (updates) updates.textContent = stats.updates_available || 0;
 }
 
 // Refresh environment (re-scan packages)
 window.refreshEnvironment = async function() {
   const refreshBtn = document.getElementById('refresh-env-btn');
-  const originalText = refreshBtn.textContent;
   
   try {
-    refreshBtn.textContent = '⏳ Scanning...';
-    refreshBtn.disabled = true;
+    if (refreshBtn) {
+      refreshBtn.textContent = '⏳ Scanning...';
+      refreshBtn.disabled = true;
+    }
     
     const result = await ipcRenderer.invoke('scan-environment');
     console.log('[Renderer] Environment rescanned:', result.count, 'packages');
@@ -337,24 +387,29 @@ window.refreshEnvironment = async function() {
     const stats = await ipcRenderer.invoke('get-stats');
     updateDashboard(stats);
     
-    refreshBtn.textContent = '✅ Done!';
-    setTimeout(() => {
-      refreshBtn.textContent = originalText;
-      refreshBtn.disabled = false;
-    }, 2000);
+    if (refreshBtn) {
+      refreshBtn.textContent = '✅ Done!';
+      setTimeout(() => {
+        refreshBtn.textContent = 'Refresh';
+        refreshBtn.disabled = false;
+      }, 2000);
+    }
   } catch (error) {
     console.error('[Renderer] Refresh failed:', error);
-    refreshBtn.textContent = '❌ Failed';
-    setTimeout(() => {
-      refreshBtn.textConent = originalText;
-      refreshBtn.disabled = false;
-    }, 2000);
+    if (refreshBtn) {
+      refreshBtn.textContent = '❌ Failed';
+      setTimeout(() => {
+        refreshBtn.textContent = 'Refresh';
+        refreshBtn.disabled = false;
+      }, 2000);
+    }
   }
 };
 
 // Show Package Manager View
 window.showPackageManager = async function() {
-  document.getElementById('env-dashboard').style.display = 'none';
+  const envDash = document.getElementById('env-dashboard');
+  if (envDash) envDash.style.display = 'none';
   document.getElementById('quick-search-section').style.display = 'none';
   document.querySelector('.progress-indicator').style.display = 'none';
   document.querySelector('.main-content').style.display = 'none';
@@ -366,10 +421,12 @@ window.showPackageManager = async function() {
 // Hide Package Manager View
 window.hidePackageManager = function() {
   document.getElementById('package-manager-view').style.display = 'none';
-  document.getElementById('env-dashboard').style.display = 'block';
+  const envDash = document.getElementById('env-dashboard');
+  if (envDash) envDash.style.display = 'block';
   document.getElementById('quick-search-section').style.display = 'block';
-  document.querySelector('.progress-indicator').style.display = 'flex';
-  document.querySelector('.main-content').style.display = 'block';
+  // Keep main content and progress hidden on homepage
+  document.querySelector('.progress-indicator').style.display = 'none';
+  document.querySelector('.main-content').style.display = 'none';
 };
 
 // Quick Winget Search from Homepage
@@ -383,8 +440,31 @@ window.quickWingetSearch = async function() {
   }
   
   try {
-    // Hide homepage sections
-    document.getElementById('env-dashboard').style.display = 'none';
+    // Show loading overlay on homepage first
+    const loadingOverlay = document.createElement('div');
+    loadingOverlay.id = 'winget-loading-overlay';
+    loadingOverlay.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); z-index: 10000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);';
+    loadingOverlay.innerHTML = `
+      <div style="text-align: center; color: white;">
+        <div style="font-size: 3rem; margin-bottom: 1rem; animation: spin 2s linear infinite;">🔍</div>
+        <div style="font-size: 1.3rem; font-weight: 600; margin-bottom: 0.5rem;">Searching Winget...</div>
+        <div style="font-size: 1rem; opacity: 0.8;">Looking for "${escapeHtml(query)}"</div>
+      </div>
+      <style>
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      </style>
+    `;
+    document.body.appendChild(loadingOverlay);
+    
+    // Search winget
+    const results = await ipcRenderer.invoke('winget-search', query);
+    
+    // Remove loading overlay
+    loadingOverlay.remove();
+    
+    // Now navigate to results page
+    const envDash = document.getElementById('env-dashboard');
+    if (envDash) envDash.style.display = 'none';
     document.getElementById('quick-search-section').style.display = 'none';
     document.querySelector('.progress-indicator').style.display = 'none';
     
@@ -394,23 +474,25 @@ window.quickWingetSearch = async function() {
     document.getElementById('step-2').classList.remove('hidden');
     document.getElementById('step-2').style.display = 'block';
     
-    // Update progress
-    updateProgress(2);
+    // Mark this as winget flow so back button goes home
+    isWingetFlow = true;
     
-    // Show loading state
-    const dependenciesGrid = document.getElementById('dependencies-grid');
-    dependenciesGrid.innerHTML = '<div style="text-align: center; padding: 3rem; color: var(--text-secondary);"><div style="font-size: 2rem; margin-bottom: 1rem;">🔍</div><div>Searching winget for "' + query + '"...</div></div>';
-    
-    // Search winget
-    const results = await ipcRenderer.invoke('winget-search', query);
+    // Store the query for potential AI switch
+    window.lastWingetQuery = query;
     
     if (results.length === 0) {
+      const dependenciesGrid = document.getElementById('dependencies-grid');
       dependenciesGrid.innerHTML = `
         <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
           <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
-          <div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem;">No packages found for "${query}"</div>
+          <div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem;">No packages found for "${escapeHtml(query)}"</div>
           <div style="font-size: 0.9rem; margin-bottom: 2rem;">Package not available in winget repository</div>
-          <button class="btn btn-primary" onclick="backToHome()">← Back to Home</button>
+          <div style="display: flex; gap: 1rem; justify-content: center;">
+            <button class="btn btn-secondary" onclick="backToHome()">← Back to Home</button>
+            <button class="btn btn-primary" onclick="switchToAISearch()" style="background: var(--primary); border-color: var(--primary);">
+              🤖 Try AI Search Instead
+            </button>
+          </div>
         </div>
       `;
       return;
@@ -426,48 +508,99 @@ window.quickWingetSearch = async function() {
   }
 };
 
-// Quick AI Search from Homepage
-window.quickAISearch = function() {
-  const searchInput = document.getElementById('ai-quick-search');
-  const query = searchInput.value.trim();
-  
+// Start AI Stack Installer flow — shows step-1
+window.startAIFlow = function() {
+  // Hide homepage, show AI flow
+  const envDash = document.getElementById('env-dashboard');
+  if (envDash) envDash.style.display = 'none';
+  document.getElementById('quick-search-section').style.display = 'none';
+
+  document.querySelector('.main-content').style.display = 'block';
+  document.querySelector('.progress-indicator').style.display = 'flex';
+  document.getElementById('step-1').style.display = 'block';
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-input').focus();
+
+  updateProgress(1);
+};
+
+// AI Search from Homepage — triggers full AI flow with query
+window.homeAISearch = function() {
+  const input = document.getElementById('ai-home-search');
+  const query = input ? input.value.trim() : '';
   if (!query) {
     alert('Please describe what you need.');
     return;
   }
-  
-  // Hide homepage sections
-  document.getElementById('env-dashboard').style.display = 'none';
+
+  // Hide homepage, show main flow
+  const envDash = document.getElementById('env-dashboard');
+  if (envDash) envDash.style.display = 'none';
   document.getElementById('quick-search-section').style.display = 'none';
-  
-  // Show search view and populate
+
   document.querySelector('.main-content').style.display = 'block';
+  document.querySelector('.progress-indicator').style.display = 'flex';
   document.getElementById('step-1').style.display = 'block';
   document.getElementById('search-input').value = query;
-  
-  // Trigger search
+
+  // Trigger the existing AI analysis
   handleSearch();
 };
 
 // Back to Home
 window.backToHome = function() {
+  isWingetFlow = false;
+  
   // Hide all steps
   document.getElementById('step-1').style.display = 'none';
   document.getElementById('step-2').classList.add('hidden');
+  document.getElementById('step-2').style.display = '';
   document.getElementById('step-3').classList.add('hidden');
   document.getElementById('step-4').classList.add('hidden');
   
-  // Show dashboard and quick search
-  document.getElementById('env-dashboard').style.display = 'block';
-  document.getElementById('quick-search-section').style.display = 'block';
-  document.querySelector('.progress-indicator').style.display = 'flex';
+  // Hide main content and progress indicator
   document.querySelector('.main-content').style.display = 'none';
+  document.querySelector('.progress-indicator').style.display = 'none';
+  
+  // Show dashboard and quick search
+  const envDash = document.getElementById('env-dashboard');
+  if (envDash) envDash.style.display = 'block';
+  document.getElementById('quick-search-section').style.display = 'block';
   
   // Reset progress
   updateProgress(1);
   
-  // Clear selections
+  // Clear all selections and counts
   selectedDependencies.clear();
+  selectedForUninstall.clear();
+  
+  // Reset install button
+  const ib = document.getElementById('install-btn');
+  if (ib) { ib.disabled = true; ib.textContent = 'Select Something'; }
+  
+  // Hide uninstall button
+  const ub = document.getElementById('uninstall-selected-btn');
+  if (ub) ub.style.display = 'none';
+};
+
+// Switch to AI Search (from winget results)
+window.switchToAISearch = function() {
+  // Get the last winget query
+  const query = window.lastWingetQuery || '';
+  
+  // Go back to homepage
+  backToHome();
+  
+  // Insert the query into AI search box (but don't submit)
+  setTimeout(() => {
+    const aiSearchInput = document.getElementById('ai-home-search');
+    if (aiSearchInput && query) {
+      aiSearchInput.value = query;
+      aiSearchInput.focus();
+      // Highlight the text so user can edit if needed
+      aiSearchInput.select();
+    }
+  }, 100);
 };
 
 // Display Winget Search Results
@@ -477,47 +610,95 @@ function displayWingetResults(packages, searchQuery) {
   const stepDesc = document.querySelector('#step-2 p');
   
   stepTitle.textContent = `02. Winget Search Results for "${searchQuery}"`;
-  stepDesc.textContent = `Found ${packages.length} package(s). Select what you want to install.`;
+  stepDesc.textContent = `Found ${packages.length} package(s). Click to select, then install.`;
   
-  // Convert winget results to dependency format
+  // Convert winget results to dependency format and store globally
   const dependencies = packages.map(pkg => ({
     name: pkg.id,
     display_name: pkg.name,
-    description: `Version ${pkg.version} from ${pkg.source}`,
+    description: `${pkg.version} · ${pkg.source}`,
     version: pkg.version,
     status: 'not_installed',
     essential: false,
     category: 'Package',
-    install_commands: [`winget install --id ${pkg.id} --accept-source-agreements --accept-package-agreements`]
+    install_commands: [`winget install --id ${pkg.id} --accept-source-agreements --accept-package-agreements`],
+    verify_command: `winget list --id ${pkg.id}`
   }));
   
   analysisResult = { dependencies };
+  selectedDependencies.clear();
   
   dependenciesGrid.innerHTML = dependencies.map((dep, index) => `
-    <div class="dependency-card" data-index="${index}" onclick="toggleDependencySelection(${index})">
+    <div class="dependency-card" data-index="${index}" data-dep-name="${escapeHtml(dep.name)}">
       <div class="dependency-header">
         <div class="dependency-emoji">📦</div>
-        <h3 class="dependency-name">${dep.display_name}</h3>
+        <h3 class="dependency-name">${escapeHtml(dep.display_name)}</h3>
       </div>
-      <p class="dependency-description">${dep.description}</p>
+      <p class="dependency-description">${escapeHtml(dep.description)}</p>
       <div class="dependency-meta">
-        <span class="meta-tag">${dep.category}</span>
-        <span class="status-badge-empty">Select</span>
+        <span class="meta-tag">${escapeHtml(dep.category)}</span>
+        <span class="status-badge-empty winget-select-badge">Click to select</span>
       </div>
     </div>
   `).join('');
+
+  // Attach click handlers
+  dependenciesGrid.querySelectorAll('.dependency-card').forEach(card => {
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', () => {
+      const idx = parseInt(card.dataset.index);
+      const dep = analysisResult.dependencies[idx];
+      if (!dep) return;
+
+      if (selectedDependencies.has(dep.name)) {
+        selectedDependencies.delete(dep.name);
+        card.classList.remove('selected');
+        card.querySelector('.winget-select-badge').textContent = 'Click to select';
+      } else {
+        selectedDependencies.add(dep.name);
+        card.classList.add('selected');
+        card.querySelector('.winget-select-badge').textContent = '✓ Selected';
+      }
+      updateWingetInstallButton();
+    });
+  });
   
-  // Add proceed button
-  const actionBar = document.querySelector('#step-2 .action-bar') || createActionBar();
-  actionBar.innerHTML = `
-    <button class="btn btn-secondary" onclick="backToHome()">← Back to Home</button>
-    <button class="btn btn-primary" id="proceed-btn-step2" onclick="proceedToInstallation()" disabled>
-      Install Selected →
-    </button>
-  `;
-  
-  if (!document.querySelector('#step-2 .action-bar')) {
-    document.getElementById('step-2').appendChild(actionBar);
+  // Ensure action bar exists and update it with AI switch option
+  let actionBar = document.querySelector('#step-2 .action-bar');
+  if (actionBar) {
+    actionBar.innerHTML = `
+      <div style="display: flex; gap: 1rem; align-items: center; width: 100%;">
+        <button class="btn btn-secondary" onclick="backToHome()">← Back to Home</button>
+        <button class="btn" onclick="switchToAISearch()" style="background: rgba(0,212,255,0.1); color: var(--primary); border: 1px solid var(--primary); padding: 0.7rem 1.2rem; font-size: 0.9rem;">
+          🤖 Didn't find it? Try AI Search
+        </button>
+        <div style="flex: 1;"></div>
+        <button class="btn btn-primary" id="winget-install-btn" disabled>Select Something</button>
+      </div>
+    `;
+  }
+
+  // Attach install handler
+  setTimeout(() => {
+    const wingetInstallBtn = document.getElementById('winget-install-btn');
+    if (wingetInstallBtn) {
+      wingetInstallBtn.addEventListener('click', () => {
+        // Use the existing handleInstall flow which goes through safety check
+        handleInstall();
+      });
+    }
+  }, 50);
+}
+
+function updateWingetInstallButton() {
+  const btn = document.getElementById('winget-install-btn');
+  if (!btn) return;
+  if (selectedDependencies.size > 0) {
+    btn.disabled = false;
+    btn.textContent = `Install Selected (${selectedDependencies.size}) →`;
+  } else {
+    btn.disabled = true;
+    btn.textContent = 'Select Something';
   }
 }
 
@@ -865,9 +1046,9 @@ function renderNoResults(query) {
   resultsList.innerHTML = `
     <div style="padding: 3rem; text-align: center; color: var(--text-secondary);">
       <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
-      <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">No packages found for "${query}"</div>
+      <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">No packages found for "${escapeHtml(query)}"</div>
       <div style="font-size: 0.9rem; margin-bottom: 1.5rem;">Package not available in winget repository</div>
-      <button class="search-ai-btn" onclick="searchWithAI('${query}')" style="font-size: 1rem; padding: 0.75rem 1.5rem;">
+      <button class="search-ai-btn" onclick="searchWithAI(document.getElementById('package-search-input')?.value || '')" style="font-size: 1rem; padding: 0.75rem 1.5rem;">
         🤖 Search with AI Instead
       </button>
     </div>
@@ -878,51 +1059,51 @@ function renderNoResults(query) {
 
 // Install a package from search results
 window.installSearchedPackage = async function(packageId, packageName) {
-  const confirmed = confirm(`Install ${packageName}?\n\nThis will:\n- Generate installation commands via AI\n- Execute the installation\n- Verify installation`);
+  const confirmed = confirm(`Install ${packageName}?`);
   if (!confirmed) return;
   
+  // Find the button for this package
+  const buttons = document.querySelectorAll('.search-install-btn');
+  let targetBtn = null;
+  buttons.forEach(btn => {
+    if (btn.getAttribute('onclick')?.includes(packageId)) {
+      targetBtn = btn;
+    }
+  });
+  
+  if (targetBtn) {
+    targetBtn.textContent = 'Installing...';
+    targetBtn.disabled = true;
+  }
+  
   try {
-    // Find the button for this package
-    const buttons = document.querySelectorAll('.search-install-btn');
-    let targetBtn = null;
-    buttons.forEach(btn => {
-      if (btn.getAttribute('onclick')?.includes(packageId)) {
-        targetBtn = btn;
-      }
-    });
+    const dep = {
+      name: packageId,
+      display_name: packageName,
+      install_commands: [`winget install --id ${packageId} --accept-source-agreements --accept-package-agreements`],
+      verify_command: `winget list --id ${packageId}`
+    };
     
-    if (targetBtn) {
-      targetBtn.textContent = 'Installing...';
-      targetBtn.disabled = true;
-    }
+    await ipcRenderer.invoke('install-dependency', dep, null);
     
-    // Use existing installation flow
-    const installRequest = `install ${packageName}`;
-    const result = await ipcRenderer.invoke('analyze-request', installRequest);
-    
-    if (result.success) {
-      alert(`${packageName} installed successfully!`);
-      clearSearch();
-      loadPackages(); // Refresh installed packages list
-      refreshEnvironment();
-    } else {
-      alert(`Installation failed: ${result.error || 'Unknown error'}`);
-      if (targetBtn) {
-        targetBtn.textContent = 'Install';
-        targetBtn.disabled = false;
-      }
-    }
+    if (targetBtn) targetBtn.textContent = '\u2705 Installed';
+    loadPackages();
   } catch (error) {
     console.error('[Renderer] Install error:', error);
-    alert(`Error: ${error.message}`);
+    alert(`Installation failed: ${error.message}`);
+    if (targetBtn) {
+      targetBtn.textContent = 'Install';
+      targetBtn.disabled = false;
+    }
   }
 };
 
-// Fallback to AI search
+// Fallback to AI search (from no results, if needed)
 window.searchWithAI = function(query) {
-  clearSearch();
-  switchView('searchView');
-  searchInput.value = query || '';
+  hidePackageManager();
+  startAIFlow();
+  const searchInput = document.getElementById('search-input');
+  if (searchInput) searchInput.value = query || '';
   if (query) {
     handleSearch();
   }
@@ -967,12 +1148,23 @@ searchInput.addEventListener('keypress', (e) => {
 });
 installBtn.addEventListener('click', handleInstall);
 backBtn.addEventListener('click', () => {
-  showStep(1);
+  if (isWingetFlow) {
+    // Came from winget search — go back to homepage
+    isWingetFlow = false;
+    backToHome();
+  } else {
+    // Came from AI flow — go back to step 1
+    showStep(1);
+  }
   selectedDependencies.clear();
+  selectedForUninstall.clear();
+  const ib = document.getElementById('install-btn');
+  if (ib) { ib.disabled = true; ib.textContent = 'Select Something'; }
+  const ub = document.getElementById('uninstall-selected-btn');
+  if (ub) ub.style.display = 'none';
 });
 newSearchBtn.addEventListener('click', () => {
-  showStep(1);
-  selectedDependencies.clear();
+  backToHome();
   searchInput.value = '';
 });
 if (uninstallBtn) {
@@ -1019,6 +1211,7 @@ async function handleSearch() {
   const query = searchInput.value.trim();
   if (!query) return;
 
+  isWingetFlow = false; // AI flow, not winget
   searchBtn.disabled = true;
   searchBtn.textContent = 'Analyzing...';
 
@@ -1222,6 +1415,12 @@ function toggleDependency(dep, card) {
   // Deselect any stack when manually selecting
   document.querySelectorAll('.stack-option-card').forEach(c => c.classList.remove('selected'));
   
+  // MUTUAL EXCLUSION: Can't install and uninstall at the same time
+  if (selectedForUninstall.size > 0) {
+    alert('❌ Cannot mix install and uninstall actions.\n\nPlease either:\n- Clear uninstall selections first, OR\n- Complete uninstall, then select for install');
+    return;
+  }
+  
   if (selectedDependencies.has(dep.name)) {
     selectedDependencies.delete(dep.name);
     card.classList.remove('selected');
@@ -1234,6 +1433,12 @@ function toggleDependency(dep, card) {
 }
 
 function toggleUninstallSelection(dep, card) {
+  // MUTUAL EXCLUSION: Can't install and uninstall at the same time
+  if (selectedDependencies.size > 0) {
+    alert('❌ Cannot mix install and uninstall actions.\n\nPlease either:\n- Clear install selections first, OR\n- Complete installation, then select for uninstall');
+    return;
+  }
+  
   const hint = card.querySelector('.uninstall-hint');
   if (selectedForUninstall.has(dep.name)) {
     selectedForUninstall.delete(dep.name);
@@ -1834,7 +2039,19 @@ function showStep(stepNumber) {
   // Show current step
   [step1, step2, step3, step4][stepNumber - 1].classList.remove('hidden');
   
+  // Also show progress indicator and main content for AI flow
+  document.querySelector('.progress-indicator').style.display = 'flex';
+  document.querySelector('.main-content').style.display = 'block';
+  
   // Update progress indicator
+  updateProgress(stepNumber);
+  
+  // Smooth scroll to top
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Update the visual progress dots only (no step visibility change)
+function updateProgress(stepNumber) {
   const progressSteps = document.querySelectorAll('.progress-step');
   progressSteps.forEach((step, index) => {
     step.classList.remove('active', 'completed');
@@ -1844,9 +2061,6 @@ function showStep(stepNumber) {
       step.classList.add('completed');
     }
   });
-  
-  // Smooth scroll to top
-  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ──── Mode Toggle (Essential vs Full) ────
