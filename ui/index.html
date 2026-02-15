@@ -44,6 +44,78 @@
       </div>
     </header>
 
+    <!-- Quick Search Section -->
+    <div class="quick-search-section" id="quick-search-section" style="display: none;">
+      <div class="quick-search-container">
+        <div class="search-option">
+          <h3 class="search-option-title">Winget Package Search</h3>
+          <p class="search-option-desc">Search and install packages directly from winget repository</p>
+          <div class="quick-search-box">
+            <input type="text" id="winget-quick-search" placeholder="Search packages: python, git, nodejs..." class="quick-search-input" onkeypress="if(event.key==='Enter') quickWingetSearch()" />
+            <button class="quick-search-btn" onclick="quickWingetSearch()">Search</button>
+          </div>
+        </div>
+        <div class="search-option">
+          <h3 class="search-option-title">AI-Powered Installation</h3>
+          <p class="search-option-desc">Describe what you need and let AI help you install it</p>
+          <div class="quick-search-box">
+            <input type="text" id="ai-quick-search" placeholder="e.g., web dev stack, data science tools..." class="quick-search-input" onkeypress="if(event.key==='Enter') quickAISearch()" />
+            <button class="quick-search-btn" onclick="quickAISearch()">Analyze</button>
+          </div>
+        </div>
+      </div>
+      <div style="text-align: center; margin-top: 1.5rem;">
+        <button class="btn btn-secondary" onclick="showPackageManager()" style="font-size: 0.9rem; padding: 0.6rem 1.5rem;">
+          📦 Manage Installed Packages
+        </button>
+      </div>
+    </div>
+
+    <!-- Package Manager View (Hidden by default) -->
+    <div class="package-manager-view" id="package-manager-view" style="display: none;">
+      <div class="package-manager-header">
+        <div class="package-manager-title">
+          <button class="back-btn" onclick="hidePackageManager()">← Back</button>
+          <h2>Package Manager</h2>
+          <span class="package-count" id="package-count">0 packages</span>
+        </div>
+        <button class="export-btn" onclick="exportEnvironment()">
+          💾 Export State
+        </button>
+      </div>
+      <div class="package-manager-body">
+        <!-- Package Search Section -->
+        <div class="search-packages-section">
+          <h3 class="section-title">🔍 Search Packages</h3>
+          <p class="section-description">Search for any package from winget repository</p>
+          <div class="search-packages-box">
+            <input type="text" id="package-search-input" class="package-search-input" placeholder="Search for Python, Git, Docker, VSCode..." onkeypress="if(event.key==='Enter') searchPackages()" />
+            <button class="search-packages-btn" onclick="searchPackages()">
+              Search
+            </button>
+          </div>
+          <div id="search-results-container" class="search-results-container" style="display: none;">
+            <div class="search-results-header">
+              <span id="search-results-count">0 results</span>
+              <button class="clear-search-btn" onclick="clearSearch()">Clear</button>
+            </div>
+            <div id="search-results-list" class="search-results-list"></div>
+          </div>
+        </div>
+
+        <!-- Installed Packages Section -->
+        <div class="installed-packages-section">
+          <h3 class="section-title">💻 Installed Dev Tools</h3>
+          <div class="package-list" id="package-list">
+            <div class="package-list-placeholder">
+              <div class="placeholder-icon">📦</div>
+              <p>No packages installed yet</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Progress Indicator -->
     <div class="progress-indicator">
       <div class="progress-step active" data-step="1">
@@ -182,7 +254,7 @@
         <div id="verification-results" class="verification-results"></div>
         <div class="action-bar">
           <button id="new-search-btn" class="btn btn-primary">Install More Stuff</button>
-          <button id="uninstall-btn" class="btn btn-secondary" onclick="showUninstallPlaceholder()">Uninstall Packages</button>
+          <button id="uninstall-btn" class="btn btn-secondary">Uninstall Packages</button>
         </div>
       </section>
     </main>
@@ -198,8 +270,8 @@
         <h2>✅ Installation Complete</h2>
         <p>Your installs finished successfully. Want me to verify everything now?</p>
         <div class="safety-actions">
-          <button class="btn btn-secondary" onclick="this.closest('.modal').style.display='none'">Close</button>
-          <button class="btn btn-primary" onclick="proceedToVerification()">Continue</button>
+          <button class="btn btn-secondary" id="complete-modal-close">Close</button>
+          <button class="btn btn-primary" id="complete-modal-continue">Continue</button>
         </div>
       </div>
     </div>
@@ -212,8 +284,8 @@
         <div id="safety-summary" class="safety-summary"></div>
         <div id="safety-commands-list" class="safety-commands-list"></div>
         <div class="safety-actions">
-          <button class="btn btn-secondary" onclick="cancelSafetyPreview()">← Cancel</button>
-          <button class="btn btn-primary" id="safety-proceed-btn" onclick="proceedWithInstall()">Proceed with Install</button>
+          <button class="btn btn-secondary" id="safety-cancel-btn">← Cancel</button>
+          <button class="btn btn-primary" id="safety-proceed-btn">Proceed with Install</button>
         </div>
       </div>
     </div>

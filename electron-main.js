@@ -37,6 +37,13 @@ const GeminiInstaller = require('./src/gemini-installer');
 const Installer = require('./src/installer');
 const Verifier = require('./src/verifier');
 
+// Stateful environment management modules
+const StateManager = require('./src/state-manager');
+const EnvironmentScanner = require('./src/environment-scanner');
+const DecisionEngine = require('./src/decision-engine');
+const UpdateDetector = require('./src/update-detector');
+const Exporter = require('./src/exporter');
+
 // New modules
 const CommandClassifier = require('./src/command-classifier');
 const ErrorAnalyzer = require('./src/error-analyzer');
@@ -71,7 +78,7 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+// Initialization moved above
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -87,12 +94,51 @@ app.on('activate', () => {
 
 // IPC Handlers
 const systemDetector = new SystemDetector();
-const geminiInstaller = new GeminiInstaller();
+let geminiInstaller = new GeminiInstaller();
 const installer = new Installer();
 const verifier = new Verifier();
 const commandClassifier = new CommandClassifier();
-const errorAnalyzer = new ErrorAnalyzer();
-const uninstaller = new Uninstaller();
+let errorAnalyzer = new ErrorAnalyzer();
+let uninstaller = new Uninstaller();
+
+// Stateful environment management instances
+const stateManager = new StateManager();
+let environmentScanner = null;
+let decisionEngine = null;
+let updateDetector = null;
+let exporter = null;
+
+// Initialize environment on app start
+async function initializeEnvironment() {
+  console.log('[Main] Initializing environment...');
+  const systemInfo = systemDetector.getSystemInfo();
+  
+  // Create module instances
+  environmentScanner = new EnvironmentScanner(systemInfo);
+  decisionEngine = new DecisionEngine(stateManager);
+  updateDetector = new UpdateDetector(systemInfo);
+  exporter = new Exporter(stateManager);
+  
+  // Try to load existing state
+  const existingState = await stateManager.loadState();
+  
+  if (!existingState) {
+    // No state found - scan and initialize
+    console.log('[Main] No existing state - performing initial scan...');
+    const installedPackages = await environmentScanner.scanInstalledPackages();
+    await stateManager.initializeState(systemInfo, installedPackages);
+  } else {
+    console.log('[Main] Loaded existing state from disk');
+  }
+  
+  console.log('[Main] Environment initialized successfully');
+}
+
+// Call initialization when app is ready
+app.whenReady().then(() => {
+  createWindow();
+  initializeEnvironment().catch(err => console.error('[Main] Environment init failed:', err));
+});
 
 // Detect system
 ipcMain.handle('detect-system', async () => {
@@ -198,6 +244,13 @@ ipcMain.handle('save-api-key', async (event, apiKey) => {
     const config = { GEMINI_API_KEY: apiKey };
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
     process.env.GEMINI_API_KEY = apiKey;
+    
+    // Recreate AI module instances with the new key
+    geminiInstaller = new GeminiInstaller();
+    errorAnalyzer = new ErrorAnalyzer();
+    uninstaller = new Uninstaller();
+    console.log('[Main] API key saved and AI modules reinitialized');
+    
     return { success: true };
   } catch (error) {
     console.error('Error saving API key:', error);
@@ -208,6 +261,8 @@ ipcMain.handle('save-api-key', async (event, apiKey) => {
 
 // Install dependency with progress
 ipcMain.handle('install-dependency', async (event, dependency, sudoPassword) => {
+  const startTime = Date.now();
+  
   return new Promise((resolve, reject) => {
     // Windows doesn't need sudo, check for Administrator instead
     const isWindows = process.platform === 'win32';
@@ -237,10 +292,30 @@ ipcMain.handle('install-dependency', async (event, dependency, sudoPassword) => 
         // Only request password on Linux/Mac
         mainWindow.webContents.send('sudo-password-required');
       }
-    }, actualPassword).then(result => {
+    }, actualPassword).then(async result => {
+      // Log installation to state manager
+      const duration = (Date.now() - startTime) / 1000;
+      await stateManager.logInstallation(
+        dependency.name,
+        'install',
+        result.success ? 'success' : 'failed',
+        duration,
+        result.error || null
+      );
+      
       resolve(result);
-    }).catch(error => {
-      mainWindow.webContents.send('terminal-output', { type: 'error', text: error.message });
+    }).catch(async error => {
+      // Log failed installation
+      const duration = (Date.now() - startTime) / 1000;
+      await stateManager.logInstallation(
+        dependency.name,
+        'install',
+        'failed',
+        duration,
+        error.message
+      );
+      
+      console.error('[Install] Installation failed:', error.message);
       reject(error);
     });
   });
@@ -253,8 +328,302 @@ ipcMain.handle('submit-sudo-password', async (event, password) => {
 
 // Verify installation
 ipcMain.handle('verify-installation', async (event, dependency) => {
-  return await verifier.verifyInstallation(dependency);
+  const result = await verifier.verifyInstallation(dependency);
+  
+  // Update state manager with verification result
+  if (result.success && result.version) {
+    await stateManager.updatePackageAfterVerification(
+      dependency.name, 
+      result.version,
+      dependency.package_id
+    );
+  }
+  
+  return result;
 });
+
+// Scan environment for installed packages
+ipcMain.handle('scan-environment', async () => {
+  if (!environmentScanner) {
+    return { error: 'Environment scanner not initialized' };
+  }
+  
+  const systemInfo = systemDetector.getSystemInfo();
+  const packages = await environmentScanner.scanInstalledPackages();
+  await stateManager.initializeState(systemInfo, packages);
+  return { packages, count: packages.length };
+});
+
+// Get installation statistics
+ipcMain.handle('get-stats', async () => {
+  return stateManager.getStats();
+});
+
+// Check decision for package (install/skip/update/repair)
+ipcMain.handle('check-decision', async (event, packageName) => {
+  if (!decisionEngine) {
+    return { action: 'INSTALL', reason: 'Decision engine not ready' };
+  }
+  return decisionEngine.evaluatePackage(packageName);
+});
+
+// Get decision summary for all packages
+ipcMain.handle('get-decision-summary', async (event, packageNames) => {
+  if (!decisionEngine) {
+    return { total: packageNames.length, to_install: packageNames.length };
+  }
+  return decisionEngine.getSummary(packageNames);
+});
+
+// Check for available updates
+ipcMain.handle('check-updates', async () => {
+  if (!updateDetector) {
+    return [];
+  }
+  
+  const updates = await updateDetector.checkForUpdates();
+  
+  // Update state manager with update availability
+  for (const update of updates) {
+    if (update.name && update.available) {
+      await stateManager.markUpdateAvailable(update.name, update.available);
+    }
+  }
+  
+  return updates;
+});
+
+// Export environment context
+ipcMain.handle('export-context', async (event, format = 'json') => {
+  if (!exporter) {
+    return { error: 'Exporter not initialized' };
+  }
+  
+  const filePath = await exporter.saveToFile(format);
+  return { success: true, filePath };
+});
+
+// Get all installed packages
+ipcMain.handle('get-all-packages', async () => {
+  return stateManager.getAllPackages();
+});
+
+// Uninstall a package (proper flow with Gemini + verification)
+ipcMain.handle('execute-uninstall', async (event, packageInfo, sudoPassword = null) => {
+  const startTime = Date.now();
+  
+  try {
+    console.log(`[Main] Starting uninstall for: ${packageInfo.name}`);
+    
+    // Step 1: Generate uninstall plan via Gemini
+    const sysInfo = systemDetector.getSystemInfo();
+    const uninstallPlan = await uninstaller.generateUninstallPlan(
+      [{ 
+        name: packageInfo.name, 
+        display_name: packageInfo.display_name || packageInfo.name,
+        package_id: packageInfo.package_id || packageInfo.name
+      }], 
+      sysInfo
+    );
+    
+    if (!uninstallPlan || uninstallPlan.length === 0) {
+      throw new Error('Failed to generate uninstall plan');
+    }
+    
+    const plan = uninstallPlan[0];
+    console.log(`[Main] Generated ${plan.uninstall_commands.length} uninstall commands`);
+    
+    // Step 2: Execute uninstall commands
+    const isWindows = process.platform === 'win32';
+    const actualPassword = isWindows ? null : sudoPassword;
+    
+    const executeResults = await installer.executeCommands(
+      plan.uninstall_commands,
+      null, // Don't need progress callback for package manager
+      actualPassword
+    );
+    
+    // Check if execution succeeded
+    const executionFailed = executeResults.some(r => !r.success);
+    if (executionFailed) {
+      const errors = executeResults.filter(r => !r.success).map(r => r.error).join('; ');
+      throw new Error(`Uninstall commands failed: ${errors}`);
+    }
+    
+    console.log(`[Main] Commands executed successfully, verifying removal...`);
+    
+    // Step 3: Verify package was actually removed
+    const verifyResult = await verifier.verifyInstallation({
+      name: packageInfo.name,
+      display_name: packageInfo.display_name,
+      package_id: packageInfo.package_id
+    });
+    
+    // If verification shows it's still installed, uninstall failed
+    if (verifyResult.success && verifyResult.installed) {
+      throw new Error('Package still appears to be installed after uninstall');
+    }
+    
+    console.log(`[Main] Verified package removed, updating state...`);
+    
+    // Step 4: Remove from state manager
+    stateManager.removePackage(packageInfo.name);
+    
+    // Step 5: Log the uninstall
+    const duration = (Date.now() - startTime) / 1000;
+    await stateManager.logInstallation(
+      packageInfo.name,
+      'uninstall',
+      'success',
+      duration,
+      null
+    );
+    
+    return { 
+      success: true, 
+      message: `${packageInfo.display_name || packageInfo.name} uninstalled successfully`,
+      commands_executed: plan.uninstall_commands
+    };
+    
+  } catch (error) {
+    console.error(`[Main] Uninstall failed:`, error);
+    
+    // Log failed uninstall
+    const duration = (Date.now() - startTime) / 1000;
+    await stateManager.logInstallation(
+      packageInfo.name,
+      'uninstall',
+      'failed',
+      duration,
+      error.message
+    );
+    
+    return { 
+      success: false, 
+      error: error.message,
+      details: error.toString()
+    };
+  }
+});
+
+// Search for packages in winget repository
+ipcMain.handle('winget-search', async (event, query) => {
+  try {
+    console.log(`[Main] Searching winget for: ${query}`);
+    
+    // Windows: Use winget search
+    const isWindows = process.platform === 'win32';
+    
+    if (!isWindows) {
+      return []; // Winget only available on Windows
+    }
+    
+    return new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      
+      // Execute winget search with query
+      exec(`winget search "${query}" --accept-source-agreements`, { timeout: 30000 }, (error, stdout, stderr) => {
+        if (error && !stdout) {
+          console.error(`[Main] Winget search error:`, error);
+          resolve([]); // Return empty array instead of rejecting
+          return;
+        }
+        
+        try {
+          const packages = parseWingetSearchOutput(stdout);
+          console.log(`[Main] Found ${packages.length} packages`);
+          resolve(packages);
+        } catch (parseError) {
+          console.error(`[Main] Failed to parse winget output:`, parseError);
+          resolve([]);
+        }
+      });
+    });
+    
+  } catch (error) {
+    console.error(`[Main] Winget search failed:`, error);
+    return [];
+  }
+});
+
+// Parse winget search output
+function parseWingetSearchOutput(output) {
+  const lines = output.split('\n');
+  const packages = [];
+  
+  // Find the header line (contains "Name", "Id", "Version", "Source")
+  let headerIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('Name') && line.includes('Id') && line.includes('Version')) {
+      headerIndex = i;
+      break;
+    }
+  }
+  
+  if (headerIndex === -1) {
+    console.log('[Main] Could not find winget output header');
+    return [];
+  }
+  
+  // Parse the header to find column positions
+  const headerLine = lines[headerIndex];
+  const nameIdx = headerLine.indexOf('Name');
+  const idIdx = headerLine.indexOf('Id');
+  const versionIdx = headerLine.indexOf('Version');
+  const sourceIdx = headerLine.indexOf('Source');
+  
+  // Skip header and separator line
+  const dataStartIdx = headerIndex + 2;
+  
+  // Parse each package line
+  for (let i = dataStartIdx; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Stop at empty line or footer
+    if (!line.trim() || line.includes('---')) continue;
+    
+    try {
+      // Extract fields based on column positions
+      let name, id, version, source;
+      
+      if (idIdx > nameIdx) {
+        name = line.substring(nameIdx, idIdx).trim();
+      } else {
+        name = line.substring(nameIdx, versionIdx).trim();
+      }
+      
+      if (versionIdx > idIdx) {
+        id = line.substring(idIdx, versionIdx).trim();
+      } else {
+        id = line.substring(idIdx, sourceIdx).trim();
+      }
+      
+      if (sourceIdx > versionIdx) {
+        version = line.substring(versionIdx, sourceIdx).trim();
+        source = line.substring(sourceIdx).trim();
+      } else {
+        version = line.substring(versionIdx).trim();
+        source = 'winget';
+      }
+      
+      // Skip if essential fields are missing
+      if (!name || !id || !version) continue;
+      
+      packages.push({
+        name: name,
+        id: id,
+        version: version,
+        source: source || 'winget'
+      });
+    } catch (parseError) {
+      console.log(`[Main] Failed to parse line: ${line}`);
+      continue;
+    }
+  }
+  
+  return packages;
+}
 
 // Generate MCQs for a dependency (using MCQ model - Gemini 2.0 Flash Lite)
 ipcMain.handle('generate-mcqs', async (event, dependency) => {

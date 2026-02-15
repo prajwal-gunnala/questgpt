@@ -1,59 +1,94 @@
+const fs = require('fs');
+const path = require('path');
+
 /**
- * Exporter Module (Placeholder)
- * 
- * Future feature: Export installation sessions as shareable reports.
- * Will generate Markdown or JSON logs that document what was installed,
- * system info, errors encountered, and verification results.
- * 
- * Planned capabilities:
- * - Export session as Markdown report
- * - Export session as JSON for machine processing
- * - Generate a reproducible install script (.sh) from session
- * - Copy-to-clipboard support for quick sharing
- * 
- * @module Exporter
- * @status placeholder
+ * Context Exporter Module (MINIMAL VERSION)
+ * Export environment context for sharing with AI assistants
  */
-
 class Exporter {
-  /**
-   * @param {object} sessionData - Data from a completed installation session
-   */
-  constructor(sessionData) {
-    /** @type {object} */
-    this.session = sessionData || {};
+  constructor(stateManager) {
+    this.stateManager = stateManager;
   }
 
   /**
-   * Export the session as a Markdown report.
-   * @returns {string} Markdown formatted report
-   * @placeholder Not yet implemented
+   * Export context to JSON
    */
-  toMarkdown() {
-    // TODO: Generate formatted Markdown with tables, code blocks, etc.
-    console.log('[Exporter] toMarkdown() — not yet implemented');
-    return '# QuestGPT Installation Report\n\n_Coming soon..._';
+  toJSON(context = null) {
+    const state = context || this.stateManager.getAll();
+    console.log('[Exporter] Exporting to JSON');
+    return JSON.stringify(state, null, 2);
   }
 
   /**
-   * Export the session as a JSON file.
-   * @returns {string} JSON string
-   * @placeholder Not yet implemented
+   * Export context to Markdown (MINIMAL)
    */
-  toJSON() {
-    console.log('[Exporter] toJSON() — not yet implemented');
-    return JSON.stringify(this.session, null, 2);
+  toMarkdown(context = null) {
+    const state = context || this.stateManager.getAll();
+    console.log('[Exporter] Exporting to Markdown');
+    
+    let md = `# QuestGPT Environment Context\n\n`;
+    md += `**Last Scan:** ${state.last_scan || 'Never'}\n\n`;
+    md += `**System:** ${state.system?.os || 'Unknown'} (${state.system?.package_manager})\n\n`;
+    md += `## Installed Tools (${Object.keys(state.installed_tools || {}).length})\n\n`;
+    
+    Object.values(state.installed_tools || {}).forEach(tool => {
+      md += `- **${tool.display_name}** v${tool.version} (${tool.source})\n`;
+    });
+    
+    return md;
   }
 
   /**
-   * Generate a reproducible bash install script.
-   * @returns {string} Shell script content
-   * @placeholder Not yet implemented
+   * Export context to plain text (MINIMAL)
    */
-  toShellScript() {
-    // TODO: Generate a .sh file with all install commands
-    console.log('[Exporter] toShellScript() — not yet implemented');
-    return '#!/bin/bash\n# QuestGPT Install Script\n# Coming soon...';
+  toPlainText(context = null) {
+    const state = context || this.stateManager.getAll();
+    console.log('[Exporter] Exporting to plain text');
+    
+    let text = `QuestGPT Environment Context\n`;
+    text += `Last Scan: ${state.last_scan || 'Never'}\n`;
+    text += `System: ${state.system?.os} (${state.system?.package_manager})\n\n`;
+    text += `Installed Tools (${Object.keys(state.installed_tools || {}).length}):\n`;
+    
+    Object.values(state.installed_tools || {}).forEach(tool => {
+      text += `- ${tool.display_name} v${tool.version}\n`;
+    });
+    
+    return text;
+  }
+
+  /**
+   * Save export to file
+   */
+  async saveToFile(format = 'json', filePath = null) {
+    const state = this.stateManager.getAll();
+    
+    let content;
+    let extension;
+    switch (format.toLowerCase()) {
+      case 'markdown':
+      case 'md':
+        content = this.toMarkdown(state);
+        extension = '.md';
+        break;
+      case 'text':
+      case 'txt':
+        content = this.toPlainText(state);
+        extension = '.txt';
+        break;
+      default:
+        content = this.toJSON(state);
+        extension = '.json';
+    }
+
+    const outputPath = filePath || path.join(
+      this.stateManager.stateDir, 
+      `environment_export_${Date.now()}${extension}`
+    );
+
+    fs.writeFileSync(outputPath, content, 'utf8');
+    console.log(`[Exporter] Saved to: ${outputPath}`);
+    return outputPath;
   }
 }
 

@@ -1,243 +1,356 @@
-# Gemini Terminal Chatbot 🤖
+ **QuestGPT: A Stateful Local Environment Management System for Developer Toolchains**
 
-> A beautiful terminal-based chatbot powered by Google Gemini AI with QuestGPT theming
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+# 1. ABSTRACT
 
-## ✨ Features
+The rapid advancement of AI-powered code generation tools has significantly accelerated software development workflows. However, a critical gap persists between generating application code and successfully executing it within a developer’s local system environment.
 
-- 🤖 **Powered by Google Gemini AI** - Get intelligent responses using Google's latest AI model
-- 🎨 **Beautiful Terminal UI** - Styled with gradient colors, boxed messages, and ASCII art
-- 💬 **Interactive Chat** - Natural conversation flow with context awareness
-- 📜 **Conversation History** - Keep track of your chat history
-- ⚡ **Fast & Responsive** - Real-time responses with loading indicators
-- 🎯 **Simple Commands** - Easy-to-use slash commands for navigation
-- 🌈 **QuestGPT Theme** - Matching the beautiful design of QuestGPT
+Developers must manually ensure the presence of required runtimes, SDKs, libraries, and system dependencies before running generated applications. This process often involves dealing with OS-specific installation procedures, version mismatches, missing dependencies, broken configurations, and failed installations.
 
-## 🚀 Quick Start
+While current AI agents attempt to assist with setup by generating installation commands, they operate under a stateless execution paradigm, requiring repeated system introspection for each setup task without retaining persistent knowledge of the machine’s environment.
 
-### Prerequisites
+QuestGPT introduces a persistent local environment state management system that:
 
-- Node.js (v14 or higher)
-- npm or yarn
-- A Google Gemini API key
+* detects system configuration
+* maintains records of installed development tools
+* tracks versions and update availability
+* logs installation outcomes
+* verifies installation success
+* enables lifecycle operations including install, update, and uninstall
 
-### Installation
+using native Windows package registry integration through Winget.
 
-1. **Clone or navigate to the repository:**
-   ```bash
-   cd /home/prajwal/Documents/questgpt
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-3. **Set up your Gemini API key:**
-   
-   Edit the `.env` file and add your API key:
-   ```bash
-   nano .env
-   ```
-   
-   Add your key:
-   ```env
-   GEMINI_API_KEY=your_actual_api_key_here
-   ```
-   
-   Get your API key from: [Google AI Studio](https://makersuite.google.com/app/apikey)
-
-4. **Run the chatbot:**
-   ```bash
-   npm start
-   ```
-   
-   Or:
-   ```bash
-   node chatbot.js
-   ```
-
-## 🎮 Usage
-
-Once the chatbot starts, you'll see a beautiful ASCII art banner and can start chatting immediately!
-
-### Chat Commands
-
-The chatbot supports several slash commands:
-
-- `/help` - Show available commands
-- `/clear` - Clear the screen
-- `/history` - View conversation history
-- `/new` - Start a new conversation
-- `/exit` - Exit the chatbot
-
-### Example Conversation
-
-```
-💬 You: Hello! What can you help me with?
-
-🤖 Gemini: Hello! I'm Gemini, a large language model from Google AI. 
-I can help you with a wide range of tasks, including:
-- Answering questions
-- Generating creative content
-- Translating languages
-- And much more!
-
-💬 You: Tell me a joke about programming
-
-🤖 Gemini: Why do programmers prefer dark mode?
-Because light attracts bugs! 😄
-```
-
-## 🎨 Theme & Design
-
-The chatbot uses the same beautiful theme as QuestGPT:
-
-- **Gradient ASCII Art** - Eye-catching pastel gradients
-- **Boxed Messages** - Clean, boxed chat bubbles for user and AI
-- **Color-coded Elements** - Different colors for different message types
-- **Loading Spinners** - Smooth animations while waiting for responses
-- **Dark Theme** - Easy on the eyes for long conversations
-
-## 🛠️ Technology Stack
-
-- **[@google/generative-ai](https://www.npmjs.com/package/@google/generative-ai)** - Google Gemini AI SDK
-- **[inquirer](https://www.npmjs.com/package/inquirer)** - Interactive command-line prompts
-- **[chalk](https://www.npmjs.com/package/chalk)** - Terminal string styling
-- **[boxen](https://www.npmjs.com/package/boxen)** - Create boxes in the terminal
-- **[gradient-string](https://www.npmjs.com/package/gradient-string)** - Beautiful gradients
-- **[figlet](https://www.npmjs.com/package/figlet)** - ASCII art text
-- **[ora](https://www.npmjs.com/package/ora)** - Elegant terminal spinners
-- **[dotenv](https://www.npmjs.com/package/dotenv)** - Environment variable management
-
-## 📁 Project Structure
-
-```
-questgpt/
-├── chatbot.js         # Main chatbot application
-├── package.json       # Project dependencies
-├── .env               # Environment variables (API key)
-├── .env.example       # Environment variables template
-├── README.md          # This file
-└── .gitignore         # Git ignore rules
-```
-
-## ⚙️ Configuration
-
-### Gemini API Settings
-
-You can customize the Gemini model behavior in `chatbot.js`:
-
-```javascript
-const model = genAI.getGenerativeModel({ 
-  model: 'gemini-pro',
-  generationConfig: {
-    maxOutputTokens: 1000,
-    temperature: 0.9,
-    topP: 1,
-  }
-});
-```
-
-### Available Models
-
-- `gemini-pro` - Text-only model (default)
-- `gemini-pro-vision` - Multimodal model (text + images)
-
-## 🔒 Security
-
-- Never commit your `.env` file with your API key
-- Keep your `GEMINI_API_KEY` private
-- The `.gitignore` file is configured to exclude `.env`
-
-## 🐛 Troubleshooting
-
-### "GEMINI_API_KEY not found" error
-
-Make sure you have:
-1. Created a `.env` file in the project root
-2. Added your API key: `GEMINI_API_KEY=your_key_here`
-3. No extra spaces or quotes around the key
-
-### "API key not valid" error
-
-- Verify your API key is correct
-- Check if your API key has the necessary permissions
-- Ensure you're not exceeding the API quota
-
-### Module not found errors
-
-Run:
-```bash
-npm install
-```
-
-### Permission denied when running chatbot.js
-
-Make the file executable:
-```bash
-chmod +x chatbot.js
-```
-
-## 🚀 Advanced Usage
-
-### Run as a global command
-
-You can make the chatbot available system-wide:
-
-1. Add to `package.json`:
-   ```json
-   "bin": {
-     "gemini-chat": "./chatbot.js"
-   }
-   ```
-
-2. Link globally:
-   ```bash
-   npm link
-   ```
-
-3. Run from anywhere:
-   ```bash
-   gemini-chat
-   ```
-
-### Integration with shell
-
-Add an alias to your `~/.bashrc` or `~/.zshrc`:
-
-```bash
-alias gchat='cd /home/prajwal/Documents/questgpt && node chatbot.js'
-```
-
-Then run from anywhere:
-```bash
-gchat
-```
-
-## 🤝 Contributing
-
-Feel free to fork, improve, and submit pull requests!
-
-## 📄 License
-
-MIT License - feel free to use and modify!
-
-## 🙏 Credits
-
-- Powered by [Google Gemini AI](https://deepmind.google/technologies/gemini/)
-- Inspired by [QuestGPT](https://github.com/prajwal-gunnala/questgpt)
-- Built with love for the terminal ❤️
-
-## 📞 Support
-
-If you encounter any issues or have questions:
-- Check the troubleshooting section above
-- Review the [Gemini API documentation](https://ai.google.dev/docs)
-- Open an issue on GitHub
+By maintaining a continuously updated machine-readable environment context, QuestGPT reduces redundant system scans and enables future AI agents to make setup decisions based on previously established system state rather than re-evaluating the environment from scratch.
 
 ---
 
-**Happy chatting! 🚀**
+# 2. PROBLEM STATEMENT
+
+Despite advancements in AI-assisted software development, preparing local execution environments remains a major bottleneck in the developer workflow.
+
+Before executing an AI-generated application, developers must:
+
+* install necessary SDKs
+* configure runtimes
+* resolve OS-specific installation steps
+* ensure version compatibility
+* verify dependency availability
+
+In many cases, installation commands differ across systems, leading to:
+
+* dependency conflicts
+* incompatible tool versions
+* partial installations
+* failed updates
+* environment drift
+
+Existing AI coding agents attempt to mitigate these issues by generating setup commands dynamically. However, such agents typically operate without maintaining persistent knowledge of the developer’s machine state.
+
+As a result, each setup request requires:
+
+* repeated environment scanning
+* version re-evaluation
+* dependency rediscovery
+
+leading to:
+
+* redundant installation attempts
+* repeated setup failures
+* inconsistent development environments
+* increased onboarding time
+
+There exists a need for a system capable of maintaining a persistent representation of the developer’s local environment to assist in managing toolchain setup and lifecycle operations.
+
+---
+
+# 3. OBJECTIVES
+
+The primary objectives of QuestGPT are:
+
+* Detect operating system configuration
+* Scan installed development tools
+* Maintain tool version records
+* Identify update availability
+* Enable installation of missing tools
+* Support update and uninstall operations
+* Verify successful installation
+* Log installation failures
+* Maintain installation lifecycle state
+* Export environment context for reuse
+
+---
+
+# 4. SYSTEM OVERVIEW
+
+QuestGPT operates as a Windows-focused local environment management layer that integrates with native package registry infrastructure using Winget.
+
+Upon initialization, the system performs an automated scan of the host machine to detect:
+
+* OS version
+* architecture
+* installed development tools
+* installed tool versions
+
+This information is stored locally in a structured environment state file.
+
+Subsequent user requests for installation or lifecycle operations are evaluated against this stored state to determine the appropriate action prior to executing package manager commands.
+
+---
+
+# 5. SYSTEM ARCHITECTURE
+
+The system architecture consists of the following modules:
+
+---
+
+## 5.1 System Detection Layer
+
+Responsible for:
+
+* identifying operating system type
+* determining system architecture
+
+Data retrieved is stored in:
+
+```
+system_state.json
+```
+
+---
+
+## 5.2 Environment Scanner
+
+Executes:
+
+```
+winget list
+```
+
+to detect:
+
+* installed developer tools
+* installed versions
+
+Data is parsed and stored in:
+
+```
+env_state.json
+```
+
+---
+
+## 5.3 Update Checker
+
+Executes:
+
+```
+winget upgrade
+```
+
+to determine:
+
+* availability of newer versions
+
+Comparison with stored environment state allows identification of outdated tools.
+
+---
+
+## 5.4 Local Decision Engine
+
+Evaluates installation requests based on stored system state.
+
+Possible outcomes:
+
+| Condition        | Action    |
+| ---------------- | --------- |
+| Installed        | Skip      |
+| Outdated         | Upgrade   |
+| Broken           | Reinstall |
+| Not Present      | Install   |
+| Previous Failure | Retry     |
+
+---
+
+## 5.5 Command Resolver
+
+Retrieves package installation metadata using:
+
+```
+winget search <tool>
+```
+
+Extracts:
+
+* package identifier
+
+---
+
+## 5.6 Execution Engine
+
+Performs lifecycle operations including:
+
+* installation
+* upgrade
+* uninstallation
+
+Commands executed:
+
+```
+winget install <ID>
+winget upgrade <ID>
+winget uninstall <ID>
+```
+
+---
+
+## 5.7 Verification Engine
+
+Post-installation verification performed using:
+
+```
+tool --version
+```
+
+Determines installation success or failure.
+
+---
+
+## 5.8 Stateful Environment Manager
+
+Maintains:
+
+* installed tools
+* versions
+* installation history
+* failure logs
+* update status
+
+Stored in:
+
+```
+environment_context.json
+```
+
+---
+
+## 5.9 Context Export Layer
+
+Allows export of:
+
+* environment configuration
+* installed tools
+* version data
+* update availability
+
+for reuse by automation tools or AI agents.
+
+---
+
+# 6. USER FLOW
+
+---
+
+### Application Initialization
+
+* Detect OS
+* Detect architecture
+* Scan installed tools
+* Retrieve installed versions
+* Check for updates
+* Update environment state
+
+---
+
+### Installation Flow
+
+* User selects tool
+* Local state evaluated
+* Install decision made
+* Package searched
+* Installation executed
+* Verification performed
+* State updated
+
+---
+
+### Update Flow
+
+* Outdated tool detected
+* Upgrade executed
+* Verification performed
+* State updated
+
+---
+
+### Uninstall Flow
+
+* Tool selected
+* Uninstall executed
+* Verification performed
+* State updated
+
+---
+
+### Context Export
+
+* Environment context generated
+* Stored locally for reuse
+
+---
+
+# 7. EDGE CASE HANDLING
+
+---
+
+| Scenario                 | Handling              |
+| ------------------------ | --------------------- |
+| Tool already installed   | Installation skipped  |
+| Outdated tool            | Upgrade suggested     |
+| Installation failure     | Logged                |
+| Manual removal           | Detected in next scan |
+| Permission denial        | Execution halted      |
+| Multiple package matches | User selection        |
+| Verification failure     | Retry                 |
+| Offline mode             | Update check skipped  |
+| Partial installation     | Reinstall             |
+| Missing winget           | Prompt install        |
+
+---
+
+# 8. CURRENT IMPLEMENTATION
+
+Currently implemented features include:
+
+* System detection
+* Tool scanning
+* Version detection
+* Installation support
+* Update support
+* Uninstallation support
+* Verification
+* Failure logging
+* Environment state tracking
+* Update recommendation
+* Context export
+
+---
+
+# 9. FUTURE SCOPE
+
+Future enhancements may include:
+
+* Dependency graph tracking
+* Version conflict detection
+* Rollback support
+* Multi-environment profiles
+* Agent-readable context APIs
+* Deployment readiness validation
+* Local CI/CD simulation
+
+---
+
+# 10. CONCLUSION
+
+QuestGPT introduces a persistent local environment management system that enables developers to manage installation and lifecycle operations of development tools through native package registry integration.
+
+By maintaining a continuously updated machine-readable environment state, the system reduces redundant setup operations and establishes a foundation for future AI-assisted setup workflows that can operate with environment-aware context.

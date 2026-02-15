@@ -17,21 +17,26 @@ class CommandClassifier {
           /mkfs/,                                 // format disk
           /dd\s+if=/,                             // raw disk write
           />\s*\/dev\/sd/,                        // overwrite block device
-          /chmod\s+-R\s+777\s+\//,               // world-writable root
-        ],
+          /chmod\s+-R\s+777\s+\//,               // world-writable root          /format\s+[A-Za-z]:/i,                  // Windows: format C:
+          /diskpart/i,                             // Windows: disk partitioning
+          /del\s+\/[sq].*[A-Za-z]:\\/i,           // Windows: del /s /q C:\
+          /Remove-Item.*-Recurse.*-Force.*[A-Za-z]:\\/i, // PowerShell destructive        ],
         description: 'This command can cause irreversible damage to your system.'
       },
 
       // ELEVATED — requires sudo, modifies system directories
       {
         level: 'elevated',
-        label: '🔒 Elevated (sudo)',
+        label: '🔒 Elevated (sudo/admin)',
         patterns: [
           /^sudo\s/,                              // any sudo command
           /DEBIAN_FRONTEND/,                      // apt non-interactive
           /\/etc\//,                               // system config files
           /systemctl\s+(enable|start|restart)/,   // service management
           /update-alternatives/,                  // system binary links
+          /\bchoco\s+install/i,                   // Windows: Chocolatey install
+          /\bwinget\s+install/i,                  // Windows: Winget install
+          /\bscoop\s+install/i,                   // Windows: Scoop install
         ],
         description: 'Requires administrator privileges. Will modify system files.'
       },

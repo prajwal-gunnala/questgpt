@@ -1,13 +1,11 @@
 {
   "name": "questgpt-installer",
   "version": "1.0.0",
-  "description": "AI-powered installation wizard using Google Gemini AI - Terminal & Desktop App",
+  "description": "AI-powered stateful environment manager with intelligent package installation - Desktop App",
   "main": "electron-main.js",
   "scripts": {
-    "start": "node wizard.js",
-    "wizard": "node wizard.js",
-    "chat": "node chatbot.js",
-    "app": "electron .",
+    "start": "electron .",
+    "dev": "electron .",
     "clean": "node -e \"const fs = require('fs'); const path = require('path'); const dir = path.join(__dirname, 'build'); if (fs.existsSync(dir)) { fs.rmSync(dir, { recursive: true, force: true }); console.log('Cleaned build folder'); }\"",
     "prebuild": "npm run clean",
     "build": "electron-builder",
@@ -30,7 +28,6 @@
       "src/**/*",
       "assets/**/*",
       "node_modules/**/*",
-      ".env",
       "config.json.example"
     ],
     "linux": {
@@ -96,13 +93,8 @@
   "license": "MIT",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "boxen": "^5.1.2",
     "chalk": "^4.1.2",
-    "dotenv": "^17.2.3",
-    "figlet": "^1.7.0",
-    "gradient-string": "^2.0.2",
-    "inquirer": "^8.2.7",
-    "ora": "^5.4.1"
+    "dotenv": "^17.2.3"
   },
   "devDependencies": {
     "electron": "^28.3.3",

@@ -70,15 +70,122 @@ async function checkApiKeyOnStartup() {
   }
 }
 
+// Progress tracking state
+let progressItems = new Map();
+let currentProgressIndex = 0;
+let totalProgressItems = 0;
 
-// Terminal output helper
-function addTerminalLine(text, type = 'normal') {
-  const terminalBody = document.getElementById('terminal-output');
-  const line = document.createElement('div');
-  line.className = `terminal-line ${type}`;
-  line.textContent = text;
-  terminalBody.appendChild(line);
-  terminalBody.scrollTop = terminalBody.scrollHeight;
+// Progress tracker helper functions
+function initializeProgressTracker(dependencies) {
+  const progressBody = document.getElementById('progress-tracker-body');
+  const progressCounter = document.getElementById('progress-counter');
+  
+  progressBody.innerHTML = '';
+  progressItems.clear();
+  currentProgressIndex = 0;
+  totalProgressItems = dependencies.length;
+  
+  progressCounter.textContent = `0/${totalProgressItems}`;
+  
+  // Create progress items for each dependency
+  dependencies.forEach((dep, index) => {
+    const item = createProgressItem(dep.name || dep.display_name, index);
+    progressBody.appendChild(item);
+    progressItems.set(dep.name || dep.display_name, { element: item, status: 'pending' });
+  });
+}
+
+function createProgressItem(name, index) {
+  const item = document.createElement('div');
+  item.className = 'progress-item';
+  item.id = `progress-item-${index}`;
+  
+  item.innerHTML = `
+    <div class="progress-item-icon">⏳</div>
+    <div class="progress-item-info">
+      <div class="progress-item-name">${name}</div>
+      <div class="progress-item-status">Waiting...</div>
+      <div class="progress-bar-container" style="display: none;">
+        <div class="progress-bar" style="width: 0%;"></div>
+      </div>
+    </div>
+  `;
+  
+  return item;
+}
+
+function updateProgressItem(name, status, message = '') {
+  const item = progressItems.get(name);
+  if (!item) return;
+  
+  const element = item.element;
+  const icon = element.querySelector('.progress-item-icon');
+  const statusEl = element.querySelector('.progress-item-status');
+  const progressBar = element.querySelector('.progress-bar-container');
+  
+  // Remove all status classes
+  element.classList.remove('active', 'success', 'failed');
+  
+  switch (status) {
+    case 'installing':
+      element.classList.add('active');
+      icon.textContent = '🔄';
+      statusEl.textContent = message || 'Installing...';
+      statusEl.className = 'progress-item-status installing';
+      progressBar.style.display = 'block';
+      animateProgressBar(element);
+      currentProgressIndex++;
+      updateCounter();
+      break;
+      
+    case 'success':
+      element.classList.remove('active');
+      element.classList.add('success');
+      icon.textContent = '✅';
+      statusEl.textContent = message || 'Installed successfully';
+      statusEl.className = 'progress-item-status success';
+      progressBar.style.display = 'none';
+      break;
+      
+    case 'failed':
+      element.classList.remove('active');
+      element.classList.add('failed');
+      icon.textContent = '❌';
+      statusEl.textContent = message || 'Installation failed';
+      statusEl.className = 'progress-item-status failed';
+      progressBar.style.display = 'none';
+      break;
+      
+    case 'skipped':
+      element.classList.remove('active');
+      element.classList.add('success');
+      icon.textContent = '✓';
+      statusEl.textContent = message || 'Already installed';
+      statusEl.className = 'progress-item-status success';
+      currentProgressIndex++;
+      updateCounter();
+      break;
+  }
+  
+  item.status = status;
+}
+
+function animateProgressBar(element) {
+  const bar = element.querySelector('.progress-bar');
+  let width = 0;
+  const interval = setInterval(() => {
+    if (width >= 90) {
+      clearInterval(interval);
+    } else {
+      width += Math.random() * 10;
+      bar.style.width = Math.min(width, 90) + '%';
+    }
+  }, 200);
+}
+
+function updateCounter() {
+  const counter = document.getElementById('progress-counter');
+  counter.textContent = `${currentProgressIndex}/${totalProgressItems}`;
 }
 
 function normalizeCorrectIndex(correct, options) {
@@ -110,23 +217,7 @@ function normalizeCorrectIndex(correct, options) {
   return 0;
 }
 
-function clearTerminal() {
-  const terminalBody = document.getElementById('terminal-output');
-  terminalBody.innerHTML = '<div class="terminal-line">Quest GPT Installer v1.0</div><div class="terminal-line">Starting installation...</div>';
-}
-
-// Listen for terminal output from main process
-ipcRenderer.on('terminal-output', (event, data) => {
-  if (data.type === 'error') {
-    addTerminalLine(data.text, 'error');
-  } else if (data.type === 'success') {
-    addTerminalLine(data.text, 'success');
-  } else if (data.type === 'info') {
-    addTerminalLine(data.text, 'info');
-  } else {
-    addTerminalLine(data.text || data, 'normal');
-  }
-});
+// No terminal output listener needed anymore
 
 // Listen for sudo password requests
 ipcRenderer.on('sudo-password-required', () => {
@@ -145,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
       sudoPassword = terminalInput.value;
       terminalInput.value = '';
       document.getElementById('terminal-input-area').style.display = 'none';
-      addTerminalLine('Password submitted, continuing...', 'success');
+      console.log('[Sudo] Password submitted, continuing...');
     });
   }
   
@@ -203,10 +294,639 @@ async function init() {
     }
     
     displaySystemInfo();
+    
+    // Initialize environment (stateful tracking)
+    await initializeEnvironment();
   } catch (error) {
     systemInfoDiv.innerHTML = `<span>Failed</span>`;
   }
 }
+
+// Initialize environment and load stats
+async function initializeEnvironment() {
+  try {
+    const stats = await ipcRenderer.invoke('get-stats');
+    updateDashboard(stats);
+    document.getElementById('env-dashboard').style.display = 'block';
+    document.getElementById('quick-search-section').style.display = 'block';
+    console.log('[Renderer] Environment initialized:', stats);
+  } catch (error) {
+    console.error('[Renderer] Environment init failed:', error);
+  }
+}
+
+// Update dashboard with stats
+function updateDashboard(stats) {
+  document.getElementById('stat-tools').textContent = stats.total_tools || 0;
+  document.getElementById('stat-updates').textContent = stats.updates_available || 0;
+  document.getElementById('stat-installs').textContent = stats.total_installations || 0;
+}
+
+// Refresh environment (re-scan packages)
+window.refreshEnvironment = async function() {
+  const refreshBtn = document.getElementById('refresh-env-btn');
+  const originalText = refreshBtn.textContent;
+  
+  try {
+    refreshBtn.textContent = '⏳ Scanning...';
+    refreshBtn.disabled = true;
+    
+    const result = await ipcRenderer.invoke('scan-environment');
+    console.log('[Renderer] Environment rescanned:', result.count, 'packages');
+    
+    const stats = await ipcRenderer.invoke('get-stats');
+    updateDashboard(stats);
+    
+    refreshBtn.textContent = '✅ Done!';
+    setTimeout(() => {
+      refreshBtn.textContent = originalText;
+      refreshBtn.disabled = false;
+    }, 2000);
+  } catch (error) {
+    console.error('[Renderer] Refresh failed:', error);
+    refreshBtn.textContent = '❌ Failed';
+    setTimeout(() => {
+      refreshBtn.textConent = originalText;
+      refreshBtn.disabled = false;
+    }, 2000);
+  }
+};
+
+// Show Package Manager View
+window.showPackageManager = async function() {
+  document.getElementById('env-dashboard').style.display = 'none';
+  document.getElementById('quick-search-section').style.display = 'none';
+  document.querySelector('.progress-indicator').style.display = 'none';
+  document.querySelector('.main-content').style.display = 'none';
+  document.getElementById('package-manager-view').style.display = 'block';
+  
+  await loadPackages();
+};
+
+// Hide Package Manager View
+window.hidePackageManager = function() {
+  document.getElementById('package-manager-view').style.display = 'none';
+  document.getElementById('env-dashboard').style.display = 'block';
+  document.getElementById('quick-search-section').style.display = 'block';
+  document.querySelector('.progress-indicator').style.display = 'flex';
+  document.querySelector('.main-content').style.display = 'block';
+};
+
+// Quick Winget Search from Homepage
+window.quickWingetSearch = async function() {
+  const searchInput = document.getElementById('winget-quick-search');
+  const query = searchInput.value.trim();
+  
+  if (!query) {
+    alert('Please enter a package name to search.');
+    return;
+  }
+  
+  try {
+    // Hide homepage sections
+    document.getElementById('env-dashboard').style.display = 'none';
+    document.getElementById('quick-search-section').style.display = 'none';
+    document.querySelector('.progress-indicator').style.display = 'none';
+    
+    // Show main content for results
+    document.querySelector('.main-content').style.display = 'block';
+    document.getElementById('step-1').style.display = 'none';
+    document.getElementById('step-2').classList.remove('hidden');
+    document.getElementById('step-2').style.display = 'block';
+    
+    // Update progress
+    updateProgress(2);
+    
+    // Show loading state
+    const dependenciesGrid = document.getElementById('dependencies-grid');
+    dependenciesGrid.innerHTML = '<div style="text-align: center; padding: 3rem; color: var(--text-secondary);"><div style="font-size: 2rem; margin-bottom: 1rem;">🔍</div><div>Searching winget for "' + query + '"...</div></div>';
+    
+    // Search winget
+    const results = await ipcRenderer.invoke('winget-search', query);
+    
+    if (results.length === 0) {
+      dependenciesGrid.innerHTML = `
+        <div style="text-align: center; padding: 3rem; color: var(--text-secondary);">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
+          <div style="font-size: 1.2rem; font-weight: 600; margin-bottom: 0.5rem;">No packages found for "${query}"</div>
+          <div style="font-size: 0.9rem; margin-bottom: 2rem;">Package not available in winget repository</div>
+          <button class="btn btn-primary" onclick="backToHome()">← Back to Home</button>
+        </div>
+      `;
+      return;
+    }
+    
+    // Show results as selectable dependencies
+    displayWingetResults(results, query);
+    
+  } catch (error) {
+    console.error('[Renderer] Winget quick search error:', error);
+    alert('Search failed: ' + error.message);
+    backToHome();
+  }
+};
+
+// Quick AI Search from Homepage
+window.quickAISearch = function() {
+  const searchInput = document.getElementById('ai-quick-search');
+  const query = searchInput.value.trim();
+  
+  if (!query) {
+    alert('Please describe what you need.');
+    return;
+  }
+  
+  // Hide homepage sections
+  document.getElementById('env-dashboard').style.display = 'none';
+  document.getElementById('quick-search-section').style.display = 'none';
+  
+  // Show search view and populate
+  document.querySelector('.main-content').style.display = 'block';
+  document.getElementById('step-1').style.display = 'block';
+  document.getElementById('search-input').value = query;
+  
+  // Trigger search
+  handleSearch();
+};
+
+// Back to Home
+window.backToHome = function() {
+  // Hide all steps
+  document.getElementById('step-1').style.display = 'none';
+  document.getElementById('step-2').classList.add('hidden');
+  document.getElementById('step-3').classList.add('hidden');
+  document.getElementById('step-4').classList.add('hidden');
+  
+  // Show dashboard and quick search
+  document.getElementById('env-dashboard').style.display = 'block';
+  document.getElementById('quick-search-section').style.display = 'block';
+  document.querySelector('.progress-indicator').style.display = 'flex';
+  document.querySelector('.main-content').style.display = 'none';
+  
+  // Reset progress
+  updateProgress(1);
+  
+  // Clear selections
+  selectedDependencies.clear();
+};
+
+// Display Winget Search Results
+function displayWingetResults(packages, searchQuery) {
+  const dependenciesGrid = document.getElementById('dependencies-grid');
+  const stepTitle = document.querySelector('#step-2 .step-title');
+  const stepDesc = document.querySelector('#step-2 p');
+  
+  stepTitle.textContent = `02. Winget Search Results for "${searchQuery}"`;
+  stepDesc.textContent = `Found ${packages.length} package(s). Select what you want to install.`;
+  
+  // Convert winget results to dependency format
+  const dependencies = packages.map(pkg => ({
+    name: pkg.id,
+    display_name: pkg.name,
+    description: `Version ${pkg.version} from ${pkg.source}`,
+    version: pkg.version,
+    status: 'not_installed',
+    essential: false,
+    category: 'Package',
+    install_commands: [`winget install --id ${pkg.id} --accept-source-agreements --accept-package-agreements`]
+  }));
+  
+  analysisResult = { dependencies };
+  
+  dependenciesGrid.innerHTML = dependencies.map((dep, index) => `
+    <div class="dependency-card" data-index="${index}" onclick="toggleDependencySelection(${index})">
+      <div class="dependency-header">
+        <div class="dependency-emoji">📦</div>
+        <h3 class="dependency-name">${dep.display_name}</h3>
+      </div>
+      <p class="dependency-description">${dep.description}</p>
+      <div class="dependency-meta">
+        <span class="meta-tag">${dep.category}</span>
+        <span class="status-badge-empty">Select</span>
+      </div>
+    </div>
+  `).join('');
+  
+  // Add proceed button
+  const actionBar = document.querySelector('#step-2 .action-bar') || createActionBar();
+  actionBar.innerHTML = `
+    <button class="btn btn-secondary" onclick="backToHome()">← Back to Home</button>
+    <button class="btn btn-primary" id="proceed-btn-step2" onclick="proceedToInstallation()" disabled>
+      Install Selected →
+    </button>
+  `;
+  
+  if (!document.querySelector('#step-2 .action-bar')) {
+    document.getElementById('step-2').appendChild(actionBar);
+  }
+}
+
+function createActionBar() {
+  const actionBar = document.createElement('div');
+  actionBar.className = 'action-bar';
+  return actionBar;
+}
+
+// Store packages globally for uninstall
+let installedPackagesCache = [];
+
+// Categorize package as dev tool or general app
+function categorizePackage(pkgName) {
+  const name = pkgName.toLowerCase();
+  
+  // Programming Languages
+  if (name.includes('python') || name.includes('node') || name.includes('java') || 
+      name.includes('ruby') || name.includes('golang') || name.includes('rust') || 
+      name.includes('php') || name.includes('perl') || name === 'gcc' || name === 'clang') {
+    return { category: 'Language', isDev: true };
+  }
+  
+  // Version Control
+  if (name.includes('git') || name.includes('svn') || name.includes('mercurial')) {
+    return { category: 'Version Control', isDev: true };
+  }
+  
+  // Package Managers
+  if (name === 'npm' || name === 'pip' || name === 'yarn' || name === 'pnpm' || 
+      name === 'composer' || name === 'maven' || name === 'gradle' || name === 'cargo') {
+    return { category: 'Package Manager', isDev: true };
+  }
+  
+  // Databases
+  if (name.includes('mysql') || name.includes('postgres') || name.includes('mongodb') || 
+      name.includes('redis') || name.includes('sqlite') || name.includes('mariadb')) {
+    return { category: 'Database', isDev: true };
+  }
+  
+  // Containers & Virtualization
+  if (name.includes('docker') || name.includes('kubernetes') || name.includes('vagrant') || 
+      name.includes('virtualbox') || name === 'kubectl') {
+    return { category: 'Container/VM', isDev: true };
+  }
+  
+  // Build Tools
+  if (name.includes('make') || name.includes('cmake') || name.includes('webpack') || 
+      name.includes('gulp') || name.includes('grunt') || name.includes('vite')) {
+    return { category: 'Build Tool', isDev: true };
+  }
+  
+  // CLI Tools
+  if (name === 'curl' || name === 'wget' || name === 'jq' || name === 'grep' || 
+      name === 'sed' || name === 'awk' || name === 'fd' || name === 'ripgrep' || 
+      name === 'bat' || name === 'exa' || name === 'fzf') {
+    return { category: 'CLI Tool', isDev: true };
+  }
+  
+  // Editors & IDEs
+  if (name.includes('vscode') || name.includes('vim') || name.includes('emacs') || 
+      name.includes('sublime') || name.includes('atom') || name.includes('intellij')) {
+    return { category: 'Editor/IDE', isDev: true };
+  }
+  
+  // Python Libraries
+  if (name === 'pandas' || name === 'numpy' || name === 'flask' || name === 'django' || 
+      name === 'requests' || name === 'scipy' || name === 'matplotlib') {
+    return { category: 'Python Library', isDev: true };
+  }
+  
+  // Node Libraries
+  if (name === 'express' || name === 'react' || name === 'vue' || name === 'angular' || 
+      name === 'webpack' || name === 'eslint' || name === 'prettier') {
+    return { category: 'Node Package', isDev: true };
+  }
+  
+  // Testing Frameworks
+  if (name.includes('jest') || name.includes('mocha') || name.includes('pytest') || 
+      name.includes('junit') || name.includes('selenium')) {
+    return { category: 'Testing', isDev: true };
+  }
+  
+  // Web Servers
+  if (name.includes('nginx') || name.includes('apache') || name.includes('tomcat')) {
+    return { category: 'Web Server', isDev: true };
+  }
+  
+  // Default: General app (filter out)
+  return { category: 'Other', isDev: false };
+}
+
+// Load all installed packages (dev tools only)
+async function loadPackages() {
+  try {
+    const allPackages = await ipcRenderer.invoke('get-all-packages');
+    
+    // Filter to only dev tools/dependencies
+    const devPackages = allPackages.map((pkg, originalIndex) => ({
+      ...pkg,
+      originalIndex,
+      ...categorizePackage(pkg.name)
+    })).filter(pkg => pkg.isDev);
+    
+    installedPackagesCache = devPackages; // Cache filtered dev packages
+    
+    const packageList = document.getElementById('package-list');
+    const packageCount = document.getElementById('package-count');
+    
+    packageCount.textContent = `${devPackages.length} dev package${devPackages.length !== 1 ? 's' : ''}`;
+    
+    if (devPackages.length === 0) {
+      packageList.innerHTML = `
+        <div class="package-list-placeholder">
+          <div class="placeholder-icon">📦</div>
+          <p>No development packages installed yet</p>
+          <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;">Install Python, Node.js, Git, or other dev tools to see them here</p>
+        </div>
+      `;
+      return;
+    }
+    
+    // Build table HTML
+    packageList.innerHTML = `
+      <table class="package-table">
+        <thead>
+          <tr>
+            <th class="col-name">Package Name</th>
+            <th class="col-category">Category</th>
+            <th class="col-version">Version</th>
+            <th class="col-status">Status</th>
+            <th class="col-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${devPackages.map((pkg, index) => `
+            <tr class="package-row" data-package-index="${index}">
+              <td class="col-name">
+                <div class="package-name-cell">${pkg.display_name}</div>
+              </td>
+              <td class="col-category">
+                <span class="category-badge">${pkg.category}</span>
+              </td>
+              <td class="col-version">
+                <code class="version-code">v${pkg.version}</code>
+              </td>
+              <td class="col-status">
+                ${pkg.update_available ? 
+                  `<span class="status-update">⬆ v${pkg.latest_version}</span>` : 
+                  `<span class="status-current">✓ Current</span>`
+                }
+              </td>
+              <td class="col-actions">
+                <button class="table-uninstall-btn" onclick="uninstallPackage(${index})" title="Uninstall ${pkg.display_name}">
+                  🗑️
+                </button>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (error) {
+    console.error('[Renderer] Failed to load packages:', error);
+  }
+}
+
+// Uninstall a package (proper flow with Gemini + verification)
+window.uninstallPackage = async function(packageIndex) {
+  const pkg = installedPackagesCache[packageIndex];
+  if (!pkg) {
+    alert('Package not found. Please refresh the list.');
+    return;
+  }
+  
+  const confirmed = confirm(`Are you sure you want to uninstall ${pkg.display_name}?\n\nThis will:\n- Generate uninstall commands via AI\n- Execute the commands\n- Verify removal`);
+  if (!confirmed) return;
+  
+  const packageRow = document.querySelector(`[data-package-index="${packageIndex}"]`);
+  const uninstallBtn = packageRow.querySelector('.table-uninstall-btn');
+  const originalText = uninstallBtn.textContent;
+  
+  try {
+    // Step 1: Generate commands
+    uninstallBtn.textContent = '⏳';
+    uninstallBtn.disabled = true;
+    uninstallBtn.title = 'Generating uninstall commands...';
+    
+    // Check if sudo password needed (Linux/Mac)
+    const isWindows = systemInfo.os.toLowerCase().includes('win');
+    let sudoPassword = null;
+    
+    if (!isWindows) {
+      sudoPassword = prompt(`Sudo password required to uninstall ${pkg.display_name}:`);
+      if (sudoPassword === null) {
+        uninstallBtn.textContent = originalText;
+        uninstallBtn.disabled = false;
+        uninstallBtn.title = `Uninstall ${pkg.display_name}`;
+        return;
+      }
+    }
+    
+    // Step 2: Execute uninstall with Gemini + verification
+    uninstallBtn.title = 'Removing package...';
+    
+    const result = await ipcRenderer.invoke('execute-uninstall', {
+      name: pkg.name,
+      display_name: pkg.display_name,
+      package_id: pkg.package_id,
+      version: pkg.version
+    }, sudoPassword);
+    
+    if (result.success) {
+      // Step 3: Success - verified removal
+      uninstallBtn.textContent = '✅';
+      uninstallBtn.title = 'Successfully removed & verified';
+      console.log(`[Renderer] Uninstall successful. Commands executed:`, result.commands_executed);
+      
+      setTimeout(() => {
+        packageRow.style.opacity = '0';
+        packageRow.style.transition = 'opacity 0.3s';
+        setTimeout(() => {
+          loadPackages();
+          refreshEnvironment();
+        }, 300);
+      }, 1500);
+    } else {
+      alert(`Failed to uninstall ${pkg.display_name}:\n\n${result.error || 'Unknown error'}\n\nDetails: ${result.details || 'None'}`);
+      uninstallBtn.textContent = originalText;
+      uninstallBtn.disabled = false;
+      uninstallBtn.title = `Uninstall ${pkg.display_name}`;
+    }
+  } catch (error) {
+    console.error('[Renderer] Uninstall error:', error);
+    alert(`Error: ${error.message}`);
+    uninstallBtn.textContent = originalText;
+    uninstallBtn.disabled = false;
+    uninstallBtn.title = `Uninstall ${pkg.display_name}`;
+  }
+};
+
+// Export environment context
+window.exportEnvironment = async function() {
+  try {
+    const result = await ipcRenderer.invoke('export-context', 'markdown');
+    
+    if (result.success) {
+      alert(`Environment exported successfully!\n\nFile saved to:\n${result.filePath}`);
+    } else {
+      alert(`Export failed: ${result.error}`);
+    }
+  } catch (error) {
+    console.error('[Renderer] Export error:', error);
+    alert(`Error: ${error.message}`);
+  }
+};
+
+// Search packages in winget repository
+window.searchPackages = async function() {
+  const searchInput = document.getElementById('package-search-input');
+  const query = searchInput.value.trim();
+  
+  if (!query) {
+    alert('Please enter a package name to search.');
+    return;
+  }
+  
+  const searchBtn = document.querySelector('.search-packages-btn');
+  const originalText = searchBtn.textContent;
+  
+  try {
+    searchBtn.textContent = 'Searching...';
+    searchBtn.disabled = true;
+    
+    const results = await ipcRenderer.invoke('winget-search', query);
+    
+    if (results.length === 0) {
+      renderNoResults(query);
+    } else {
+      renderSearchResults(results);
+    }
+  } catch (error) {
+    console.error('[Renderer] Search error:', error);
+    alert(`Search failed: ${error.message}`);
+  } finally {
+    searchBtn.textContent = originalText;
+    searchBtn.disabled = false;
+  }
+};
+
+// Clear search results
+window.clearSearch = function() {
+  const searchInput = document.getElementById('package-search-input');
+  const resultsContainer = document.getElementById('search-results-container');
+  
+  searchInput.value = '';
+  resultsContainer.style.display = 'none';
+};
+
+// Render search results
+function renderSearchResults(packages) {
+  const resultsContainer = document.getElementById('search-results-container');
+  const resultsList = document.getElementById('search-results-list');
+  const resultsCount = document.getElementById('search-results-count');
+  
+  resultsCount.textContent = `${packages.length} result${packages.length !== 1 ? 's' : ''}`;
+  
+  // Check which packages are already installed
+  const installedNames = installedPackagesCache.map(p => p.display_name.toLowerCase());
+  
+  resultsList.innerHTML = packages.map((pkg, index) => {
+    const isInstalled = installedNames.includes(pkg.name.toLowerCase());
+    
+    return `
+      <div class="search-result-item">
+        <div class="search-result-info">
+          <div class="search-result-name">${pkg.name}</div>
+          <div class="search-result-id">${pkg.id}</div>
+          <div class="search-result-version">Version ${pkg.version} • Source: ${pkg.source}</div>
+        </div>
+        <div class="search-result-status">
+          ${isInstalled ? '<span class="status-installed-badge">✓ Installed</span>' : '<span class="status-available-badge">⬇ Available</span>'}
+        </div>
+        <div class="search-result-action">
+          ${isInstalled 
+            ? '<button class="search-install-btn" disabled>Already Installed</button>'
+            : `<button class="search-install-btn" onclick="installSearchedPackage('${pkg.id}', '${pkg.name}')">Install</button>`
+          }
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  resultsContainer.style.display = 'block';
+}
+
+// Render "no results" state with AI fallback
+function renderNoResults(query) {
+  const resultsContainer = document.getElementById('search-results-container');
+  const resultsList = document.getElementById('search-results-list');
+  const resultsCount = document.getElementById('search-results-count');
+  
+  resultsCount.textContent = '0 results';
+  
+  resultsList.innerHTML = `
+    <div style="padding: 3rem; text-align: center; color: var(--text-secondary);">
+      <div style="font-size: 3rem; margin-bottom: 1rem;">📦</div>
+      <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">No packages found for "${query}"</div>
+      <div style="font-size: 0.9rem; margin-bottom: 1.5rem;">Package not available in winget repository</div>
+      <button class="search-ai-btn" onclick="searchWithAI('${query}')" style="font-size: 1rem; padding: 0.75rem 1.5rem;">
+        🤖 Search with AI Instead
+      </button>
+    </div>
+  `;
+  
+  resultsContainer.style.display = 'block';
+}
+
+// Install a package from search results
+window.installSearchedPackage = async function(packageId, packageName) {
+  const confirmed = confirm(`Install ${packageName}?\n\nThis will:\n- Generate installation commands via AI\n- Execute the installation\n- Verify installation`);
+  if (!confirmed) return;
+  
+  try {
+    // Find the button for this package
+    const buttons = document.querySelectorAll('.search-install-btn');
+    let targetBtn = null;
+    buttons.forEach(btn => {
+      if (btn.getAttribute('onclick')?.includes(packageId)) {
+        targetBtn = btn;
+      }
+    });
+    
+    if (targetBtn) {
+      targetBtn.textContent = 'Installing...';
+      targetBtn.disabled = true;
+    }
+    
+    // Use existing installation flow
+    const installRequest = `install ${packageName}`;
+    const result = await ipcRenderer.invoke('analyze-request', installRequest);
+    
+    if (result.success) {
+      alert(`${packageName} installed successfully!`);
+      clearSearch();
+      loadPackages(); // Refresh installed packages list
+      refreshEnvironment();
+    } else {
+      alert(`Installation failed: ${result.error || 'Unknown error'}`);
+      if (targetBtn) {
+        targetBtn.textContent = 'Install';
+        targetBtn.disabled = false;
+      }
+    }
+  } catch (error) {
+    console.error('[Renderer] Install error:', error);
+    alert(`Error: ${error.message}`);
+  }
+};
+
+// Fallback to AI search
+window.searchWithAI = function(query) {
+  clearSearch();
+  switchView('searchView');
+  searchInput.value = query || '';
+  if (query) {
+    handleSearch();
+  }
+};
 
 function displaySystemInfo() {
   systemInfoDiv.innerHTML = `${systemInfo.os} • ${systemInfo.packageManager} • ${systemInfo.specs.arch}`;
@@ -257,6 +977,30 @@ newSearchBtn.addEventListener('click', () => {
 });
 if (uninstallBtn) {
   uninstallBtn.addEventListener('click', showUninstallPlaceholder);
+}
+
+// Complete modal buttons
+const completeModalClose = document.getElementById('complete-modal-close');
+const completeModalContinue = document.getElementById('complete-modal-continue');
+if (completeModalClose) {
+  completeModalClose.addEventListener('click', () => {
+    document.getElementById('complete-modal').style.display = 'none';
+  });
+}
+if (completeModalContinue) {
+  completeModalContinue.addEventListener('click', () => {
+    window.proceedToVerification();
+  });
+}
+
+// Safety modal buttons
+const safetyCancelBtn = document.getElementById('safety-cancel-btn');
+const safetyProceedBtn = document.getElementById('safety-proceed-btn');
+if (safetyCancelBtn) {
+  safetyCancelBtn.addEventListener('click', cancelSafetyPreview);
+}
+if (safetyProceedBtn) {
+  safetyProceedBtn.addEventListener('click', proceedWithInstall);
 }
 
 // Uninstall-selected button on Step 2 (installed packages)
@@ -657,7 +1401,7 @@ async function handleInstall() {
   try {
     const classification = await ipcRenderer.invoke('classify-commands', depsToInstall);
     pendingInstallDeps = depsToInstall;
-    showSafetyPreview(classification);
+    await showSafetyPreview(classification);
   } catch (error) {
     // If classification fails, proceed directly (fallback)
     pendingInstallDeps = depsToInstall;
@@ -666,7 +1410,7 @@ async function handleInstall() {
 }
 
 // Safety preview functions
-function showSafetyPreview(classification) {
+async function showSafetyPreview(classification) {
   const modal = document.getElementById('safety-modal');
   const summaryDiv = document.getElementById('safety-summary');
   const listDiv = document.getElementById('safety-commands-list');
@@ -701,11 +1445,38 @@ function showSafetyPreview(classification) {
     proceedBtn.style.cursor = 'pointer';
   }
 
-  // Build command list grouped by dependency
+  // Build command list grouped by dependency WITH DECISION BADGES
   let html = '';
   for (const dep of classification.dependencies) {
+    // Get decision for this package
+    let decisionBadge = '';
+    try {
+      const decision = await ipcRenderer.invoke('check-decision', dep.name);
+      const badgeClass = {
+        'INSTALL': 'badge-install',
+        'SKIP': 'badge-skip',
+        'UPDATE': 'badge-update',
+        'REPAIR': 'badge-repair'
+      }[decision.action] || 'badge-install';
+      
+      const badgeText = {
+        'INSTALL': 'NEW',
+        'SKIP': 'INSTALLED',
+        'UPDATE': 'UPDATE',
+        'REPAIR': 'REPAIR'
+      }[decision.action] || 'NEW';
+      
+      decisionBadge = `<span class="decision-badge ${badgeClass}">${badgeText}</span>`;
+      
+      if (decision.reason) {
+        console.log(`[Decision] ${dep.name}: ${decision.action} - ${decision.reason}`);
+      }
+    } catch (error) {
+      console.warn('[Decision] Failed to get decision for', dep.name, error);
+    }
+    
     html += `<div class="safety-dep-group">`;
-    html += `<h4 class="safety-dep-name">${dep.name} <span class="risk-badge risk-${dep.highestRisk}">${dep.highestRisk}</span></h4>`;
+    html += `<h4 class="safety-dep-name">${dep.name} ${decisionBadge} <span class="risk-badge risk-${dep.highestRisk}">${dep.highestRisk}</span></h4>`;
     for (const cmd of dep.commands) {
       html += `<div class="safety-cmd-row risk-${cmd.level}">
         <code>${cmd.command}</code>
@@ -724,6 +1495,7 @@ function cancelSafetyPreview() {
   pendingInstallDeps = null;
 }
 window.cancelSafetyPreview = cancelSafetyPreview;
+window.proceedWithInstall = proceedWithInstall;
 
 async function proceedWithInstall() {
   const modal = document.getElementById('safety-modal');
@@ -737,7 +1509,6 @@ async function proceedWithInstall() {
 
   // STEP 1: Show loading screen while generating questions
   showStep(3);
-  clearTerminal();
   
   const mainContent = document.querySelector('.main-content');
   const loadingDiv = document.createElement('div');
@@ -782,7 +1553,6 @@ async function proceedWithInstall() {
 
   // STEP 3: Remove loading, show installation page with quiz
   loadingDiv.remove();
-  clearTerminal();
   
   // Show quiz ready (first question)
   if (allQuestions.length > 0) {
@@ -820,7 +1590,7 @@ async function proceedWithInstall() {
   } else {
     // Windows doesn't need sudo, or already have password on Linux/Mac
     if (isWindows) {
-      addTerminalLine('Starting installation (Windows - no sudo required)...', 'info');
+      console.log('[Install] Starting installation (Windows - no sudo required)...');
     }
     startInstallation(depsToInstall);
     if (allQuestions.length > 0) {
@@ -828,8 +1598,6 @@ async function proceedWithInstall() {
     }
   }
 }
-
-window.proceedWithInstall = proceedWithInstall;
 
 function startQuestionCycle() {
   // Auto-advance questions every 10 seconds if not answered
@@ -929,29 +1697,35 @@ function selectAnswer(selectedIdx, correctIdx) {
 window.selectAnswer = selectAnswer;
 
 async function startInstallation(dependencies) {
-  addTerminalLine('', 'normal');
-  addTerminalLine('═══════════════════════════════════════', 'info');
-  addTerminalLine('Starting installation process...', 'info');
-  addTerminalLine('═══════════════════════════════════════', 'info');
+  // Initialize progress tracker with all dependencies
+  initializeProgressTracker(dependencies);
   
   for (const dep of dependencies) {
+    const depName = dep.display_name || dep.name;
+    
     try {
-      addTerminalLine('', 'normal');
-      
-      // Check if already installed (skip if detected via NVM, etc.)
+      // Check if already installed
       const checkResult = await ipcRenderer.invoke('check-installed', dep);
       if (checkResult.success) {
-        addTerminalLine(`[${dep.display_name}] ⚠ Already installed (${checkResult.actual})`, 'info');
-        addTerminalLine(`[${dep.display_name}] ✓ Skipping installation`, 'success');
+        updateProgressItem(depName, 'skipped', `Already installed (${checkResult.actual})`);
+        
+        // Track as installed
+        installedPackagesHistory.push({
+          name: dep.name,
+          display_name: dep.display_name,
+          category: dep.category
+        });
         continue;
       }
       
-      addTerminalLine(`[${dep.display_name}] Preparing installation...`, 'info');
+      // Start installation
+      updateProgressItem(depName, 'installing', 'Installing...');
       
       // Install with sudo password if available
       await ipcRenderer.invoke('install-dependency', dep, sudoPassword);
       
-      addTerminalLine(`[${dep.display_name}] ✓ Installation complete`, 'success');
+      // Mark as successful
+      updateProgressItem(depName, 'success', 'Installed successfully');
       
       // Track successfully installed package
       installedPackagesHistory.push({
@@ -960,42 +1734,15 @@ async function startInstallation(dependencies) {
         category: dep.category
       });
     } catch (error) {
-      addTerminalLine(`[${dep.display_name}] ✗ Installation failed`, 'error');
-      addTerminalLine(`Error: ${error.message}`, 'error');
-
-      // AI Error Analysis
-      addTerminalLine(`[${dep.display_name}] 🔍 Analyzing error with AI...`, 'info');
-      try {
-        const diagnosis = await ipcRenderer.invoke('analyze-error', {
-          command: (dep.install_commands || [])[0] || 'unknown',
-          stderr: error.message,
-          exitCode: error.code || 1,
-          dependency: dep.display_name || dep.name,
-          systemInfo: systemInfo
-        });
-        addTerminalLine(``, 'normal');
-        addTerminalLine(`┌─ AI Diagnosis ──────────────────────`, 'info');
-        addTerminalLine(`│ Cause: ${diagnosis.root_cause}`, 'info');
-        addTerminalLine(`│`, 'normal');
-        addTerminalLine(`│ ${diagnosis.explanation}`, 'normal');
-        addTerminalLine(`│`, 'normal');
-        if (diagnosis.suggested_fixes && diagnosis.suggested_fixes.length > 0) {
-          addTerminalLine(`│ Suggested fixes:`, 'info');
-          diagnosis.suggested_fixes.forEach((fix, i) => {
-            addTerminalLine(`│  ${i + 1}. ${fix}`, 'success');
-          });
-        }
-        addTerminalLine(`└─────────────────────────────────────`, 'info');
-      } catch (analysisErr) {
-        addTerminalLine(`[${dep.display_name}] Could not analyze error automatically`, 'info');
-      }
+      // Mark as failed with error message
+      updateProgressItem(depName, 'failed', `Failed: ${error.message.substring(0, 50)}...`);
+      
+      console.error(`[${depName}] Installation failed:`, error);
+      
+      // Optional: Store error for later analysis
+      // Could show detailed error in a modal if needed
     }
   }
-
-  addTerminalLine('', 'normal');
-  addTerminalLine('═══════════════════════════════════════', 'info');
-  addTerminalLine('All installations complete!', 'success');
-  addTerminalLine('═══════════════════════════════════════', 'info');
   
   // Quiz is already running, just stop auto-cycling
   if (questionInterval) {

@@ -61,7 +61,9 @@ Rules:
         root_cause: 'Unable to determine the exact cause automatically.',
         explanation: `The command "${errorContext.command}" failed. This could be due to network issues, missing repositories, or permission problems.`,
         suggested_fixes: [
-          'Try running: sudo apt-get update && then retry the installation',
+          (errorContext.systemInfo?.os || '').toLowerCase().includes('win')
+            ? 'Try running the app as Administrator and retry the installation'
+            : 'Try running: sudo apt-get update && then retry the installation',
           'Check your internet connection',
           'Try running the command manually in a terminal to see full output'
         ]

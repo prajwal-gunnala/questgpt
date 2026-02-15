@@ -43,7 +43,8 @@ class Installer {
       
       let finalCommand = command;
       let execOptions = { 
-        maxBuffer: 1024 * 1024 * 10
+        maxBuffer: 1024 * 1024 * 10,
+        timeout: 300000 // 5 minute timeout per command
       };
       
       // Handle sudo for Linux/Mac only
