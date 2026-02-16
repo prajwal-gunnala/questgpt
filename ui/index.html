@@ -51,7 +51,10 @@
       <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); padding: 1.5rem 2rem; margin-bottom: 2.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 2rem;">
           <div style="flex: 1;">
-            <h3 style="color: white; margin: 0 0 0.5rem 0; font-size: 1.1rem;">📦 Package Manager</h3>
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
+              <h3 style="color: white; margin: 0; font-size: 1.1rem;">📦 Package Manager</h3>
+              <div id="last-scan-time" style="color: rgba(255,255,255,0.5); font-size: 0.7rem; display: none;"></div>
+            </div>
             <div style="display: flex; gap: 2rem; margin-bottom: 0.8rem;">
               <div>
                 <div style="color: rgba(255,255,255,0.7); font-size: 0.75rem; margin-bottom: 0.2rem;">Installed Packages</div>
@@ -230,31 +233,12 @@
             </div>
           </div>
           
-          <!-- Right Side: Questions + Chatbot -->
+          <!-- Right Side: Questions -->
           <div class="questions-section">
             <div id="mcq-section" class="mcq-content">
               <p>Generating questions...</p>
             </div>
             <div id="progress-section" class="progress-text"></div>
-
-            <!-- Chatbot Placeholder -->
-            <div class="chatbot-placeholder" id="chatbot-section">
-              <div class="chatbot-header">
-                <span>💬</span>
-                <span>Ask Quest GPT</span>
-                <span class="chatbot-badge">Coming Soon</span>
-              </div>
-              <div class="chatbot-body">
-                <div class="chatbot-message bot">
-                  <span class="chatbot-avatar">🤖</span>
-                  <p>Hey! I can answer questions about what's being installed. Ask me anything — "What does this package do?", "Why do I need sudo?", etc.</p>
-                </div>
-              </div>
-              <div class="chatbot-input-area">
-                <input type="text" class="chatbot-input" placeholder="Ask about your installation..." disabled>
-                <button class="chatbot-send-btn" disabled>→</button>
-              </div>
-            </div>
           </div>
         </div>
       </section>
@@ -272,7 +256,7 @@
 
     <!-- Footer -->
     <footer class="footer">
-      <p>Quest GPT • Built with AI, sass, and minimal design • Cross-Platform Edition</p>
+      <p>Quest GPT</p>
     </footer>
 
     <!-- Installation Complete Modal -->

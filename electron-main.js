@@ -382,7 +382,13 @@ ipcMain.handle('check-updates', async () => {
     return [];
   }
   
+  console.log('[Main] Checking for updates via winget upgrade...');
   const updates = await updateDetector.checkForUpdates();
+  
+  console.log('[Main] Updates detected:');
+  updates.forEach(u => {
+    console.log(`  - ${u.name}: ${u.current} → ${u.available} (ID: ${u.package_id})`);
+  });
   
   // Update state manager with update availability
   for (const update of updates) {
@@ -503,6 +509,129 @@ ipcMain.handle('execute-uninstall', async (event, packageInfo, sudoPassword = nu
       success: false, 
       error: error.message,
       details: error.toString()
+    };
+  }
+});
+
+// Upgrade a package via winget
+ipcMain.handle('upgrade-package', async (event, packageInfo) => {
+  const startTime = Date.now();
+  
+  try {
+    console.log(`[Main] Upgrading ${packageInfo.display_name} via winget...`);
+    
+    const isWindows = process.platform === 'win32';
+    if (!isWindows) {
+      throw new Error('Winget upgrade only available on Windows');
+    }
+    
+    const packageId = packageInfo.package_id || packageInfo.name;
+    const command = `winget upgrade --id ${packageId} --accept-package-agreements --accept-source-agreements`;
+    
+    console.log(`[Main] Running: ${command}`);
+    
+    return new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      
+      exec(command, { 
+        timeout: 300000, // 5 minutes timeout
+        maxBuffer: 1024 * 1024 * 10 // 10MB buffer
+      }, async (error, stdout, stderr) => {
+        const duration = (Date.now() - startTime) / 1000;
+        
+        if (error) {
+          console.error(`[Main] Upgrade error:`, error);
+          
+          // Log failed upgrade
+          await stateManager.logInstallation(
+            packageInfo.name,
+            'upgrade',
+            'failed',
+            duration,
+            error.message
+          );
+          
+          resolve({ 
+            success: false, 
+            error: `Upgrade failed: ${error.message}`,
+            stdout,
+            stderr
+          });
+          return;
+        }
+        
+        console.log(`[Main] Upgrade output:`, stdout);
+        
+        // Check if upgrade was successful
+        const successIndicators = [
+          'Successfully installed',
+          'successfully upgraded',
+          'Installation successful'
+        ];
+        
+        const isSuccess = successIndicators.some(indicator => 
+          stdout.toLowerCase().includes(indicator.toLowerCase())
+        );
+        
+        if (isSuccess) {
+          // Log successful upgrade
+          await stateManager.logInstallation(
+            packageInfo.name,
+            'upgrade',
+            'success',
+            duration,
+            null
+          );
+          
+          // Update state manager with new version
+          if (packageInfo.latest_version) {
+            await stateManager.updatePackageAfterVerification(
+              packageInfo.name,
+              packageInfo.latest_version,
+              packageId
+            );
+          }
+          
+          resolve({ 
+            success: true, 
+            message: `${packageInfo.display_name} upgraded successfully`,
+            stdout
+          });
+        } else {
+          // Log failed upgrade
+          await stateManager.logInstallation(
+            packageInfo.name,
+            'upgrade',
+            'failed',
+            duration,
+            'No success indicator found in output'
+          );
+          
+          resolve({ 
+            success: false, 
+            error: 'Upgrade may have failed - no success confirmation found',
+            stdout,
+            stderr
+          });
+        }
+      });
+    });
+    
+  } catch (error) {
+    console.error(`[Main] Upgrade failed:`, error);
+    
+    const duration = (Date.now() - startTime) / 1000;
+    await stateManager.logInstallation(
+      packageInfo.name,
+      'upgrade',
+      'failed',
+      duration,
+      error.message
+    );
+    
+    return { 
+      success: false, 
+      error: error.message
     };
   }
 });

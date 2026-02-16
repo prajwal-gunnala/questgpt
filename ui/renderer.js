@@ -196,6 +196,35 @@ function updateCounter() {
   counter.textContent = `${currentProgressIndex}/${totalProgressItems}`;
 }
 
+// Listen for terminal output during installation
+ipcRenderer.on('terminal-output', (event, data) => {
+  const terminal = document.getElementById('install-terminal-output');
+  if (!terminal) return;
+  
+  const line = document.createElement('div');
+  line.className = `terminal-line ${data.type || 'info'}`;
+  
+  // Format the output
+  let text = data.text || data.message || '';
+  if (data.type === 'command') {
+    text = `$ ${text}`;
+    line.style.color = '#00d9ff';
+    line.style.fontWeight = '600';
+  } else if (data.type === 'error') {
+    line.style.color = '#ff6b6b';
+  } else if (data.type === 'success') {
+    line.style.color = '#51cf66';
+  } else if (data.type === 'warning') {
+    line.style.color = '#ffd700';
+  }
+  
+  line.textContent = text;
+  terminal.appendChild(line);
+  
+  // Auto-scroll to bottom
+  terminal.scrollTop = terminal.scrollHeight;
+});
+
 function normalizeCorrectIndex(correct, options) {
   if (!Array.isArray(options)) return 0;
 
@@ -313,51 +342,88 @@ async function init() {
 // Initialize environment and load stats
 async function initializeEnvironment() {
   try {
-    // Don't scan on startup - wait for user to click Scan System
+    // Show UI immediately - wait for user to trigger scan
     document.getElementById('quick-search-section').style.display = 'block';
-    // Homepage state: hide progress indicator and main content
     document.querySelector('.progress-indicator').style.display = 'none';
     document.querySelector('.main-content').style.display = 'none';
+    
     console.log('[Renderer] Environment initialized - ready for manual scan');
+    
   } catch (error) {
     console.error('[Renderer] Environment init failed:', error);
-    // Still show quick search even if stats fail
     document.getElementById('quick-search-section').style.display = 'block';
     document.querySelector('.progress-indicator').style.display = 'none';
     document.querySelector('.main-content').style.display = 'none';
   }
 }
 
-// Scan system for installed packages
+// Scan system for installed packages (manual trigger)
 window.scanSystem = async function() {
   const scanBtn = document.getElementById('scan-system-btn');
   const manageBtn = document.getElementById('manage-packages-btn');
-  const originalText = scanBtn.textContent;
+  const installed = document.getElementById('stat-installed');
+  const updates = document.getElementById('stat-updates');
+  const lastScan = document.getElementById('last-scan-time');
+  const originalText = scanBtn.innerHTML;
   
   try {
-    scanBtn.textContent = '⏳ Scanning...';
+    scanBtn.innerHTML = '⏳ Scanning...';
     scanBtn.disabled = true;
     
     // Trigger environment scan
     const result = await ipcRenderer.invoke('scan-environment');
-    console.log('[Renderer] Scanned:', result.count, 'packages');
+    console.log('[Renderer] Manual scan found:', result.count, 'packages');
+    
+    // Check for updates via winget
+    console.log('[Renderer] Checking for updates...');
+    const updates_detected = await ipcRenderer.invoke('check-updates');
+    console.log('[Renderer] Found', updates_detected.length, 'updates available');
     
     // Get updated stats
     const stats = await ipcRenderer.invoke('get-stats');
-    updateDashboard(stats);
+    
+    // Update stats
+    if (installed) installed.textContent = stats.total_tools || 0;
+    if (updates) {
+      updates.textContent = stats.updates_available || 0;
+      
+      // Visual alert if updates available
+      if (stats.updates_available > 0) {
+        updates.style.color = '#ff6b6b';
+        updates.style.animation = 'pulse 2s ease-in-out infinite';
+        
+        // Add badge to Manage Packages button
+        if (manageBtn) {
+          manageBtn.innerHTML = `Manage Packages <span style="background: #ff6b6b; color: white; padding: 0.2rem 0.5rem; border-radius: 10px; font-size: 0.75rem; margin-left: 0.5rem;">${stats.updates_available}</span>`;
+        }
+      } else {
+        updates.style.color = '#ffd700';
+        updates.style.animation = 'none';
+        if (manageBtn) {
+          manageBtn.textContent = 'Manage Packages';
+        }
+      }
+    }
+    
+    // Show last scan time
+    if (lastScan) {
+      const now = new Date();
+      lastScan.textContent = `Last scan: ${now.toLocaleTimeString()}`;
+      lastScan.style.display = 'block';
+    }
     
     // Enable manage packages button
-    manageBtn.disabled = false;
+    if (manageBtn) manageBtn.disabled = false;
     
     // Change button to "Scan Again"
-    scanBtn.textContent = '🔄 Scan Again';
+    scanBtn.innerHTML = '🔄 Scan Again';
     scanBtn.disabled = false;
     
   } catch (error) {
     console.error('[Renderer] Scan failed:', error);
-    scanBtn.textContent = '❌ Scan Failed';
+    scanBtn.innerHTML = '❌ Scan Failed';
     setTimeout(() => {
-      scanBtn.textContent = originalText;
+      scanBtn.innerHTML = originalText;
       scanBtn.disabled = false;
     }, 2000);
   }
@@ -852,6 +918,11 @@ async function loadPackages() {
                 }
               </td>
               <td class="col-actions">
+                ${pkg.update_available ? 
+                  `<button class="table-update-btn" onclick="updatePackage(${index})" title="Update to v${pkg.latest_version}">
+                    ⬆️ Update
+                  </button>` : ''
+                }
                 <button class="table-uninstall-btn" onclick="uninstallPackage(${index})" title="Uninstall ${pkg.display_name}">
                   🗑️
                 </button>
@@ -865,6 +936,54 @@ async function loadPackages() {
     console.error('[Renderer] Failed to load packages:', error);
   }
 }
+
+// Update a package via winget
+window.updatePackage = async function(packageIndex) {
+  const pkg = installedPackagesCache[packageIndex];
+  if (!pkg) {
+    alert('Package not found. Please refresh the list.');
+    return;
+  }
+  
+  if (!pkg.update_available) {
+    alert('No update available for this package.');
+    return;
+  }
+  
+  const confirmed = confirm(`Update ${pkg.display_name}?\n\nCurrent: v${pkg.version}\nLatest: v${pkg.latest_version}\n\nThis will run:\nwinget upgrade --id ${pkg.package_id}`);
+  if (!confirmed) return;
+  
+  const packageRow = document.querySelector(`[data-package-index="${packageIndex}"]`);
+  const updateBtn = packageRow.querySelector('.table-update-btn');
+  const originalText = updateBtn ? updateBtn.innerHTML : '';
+  
+  try {
+    if (updateBtn) {
+      updateBtn.innerHTML = '⏳';
+      updateBtn.disabled = true;
+    }
+    
+    console.log(`[Renderer] Updating ${pkg.display_name} via winget...`);
+    const result = await ipcRenderer.invoke('upgrade-package', pkg);
+    
+    if (result.success) {
+      alert(`✅ ${pkg.display_name} updated successfully to v${pkg.latest_version}!`);
+      // Refresh the package list
+      await loadInstalledPackages();
+    } else {
+      throw new Error(result.error || 'Update failed');
+    }
+    
+  } catch (error) {
+    console.error('[Renderer] Update failed:', error);
+    alert(`❌ Failed to update ${pkg.display_name}:\n\n${error.message}`);
+    
+    if (updateBtn) {
+      updateBtn.innerHTML = originalText;
+      updateBtn.disabled = false;
+    }
+  }
+};
 
 // Uninstall a package (proper flow with Gemini + verification)
 window.uninstallPackage = async function(packageIndex) {
@@ -1902,6 +2021,12 @@ function selectAnswer(selectedIdx, correctIdx) {
 window.selectAnswer = selectAnswer;
 
 async function startInstallation(dependencies) {
+  // Clear terminal output
+  const terminal = document.getElementById('install-terminal-output');
+  if (terminal) {
+    terminal.innerHTML = '<div style="color: #00d9ff; font-weight: 600;">🚀 Starting installation...</div>';
+  }
+  
   // Initialize progress tracker with all dependencies
   initializeProgressTracker(dependencies);
   
@@ -2033,21 +2158,30 @@ async function runVerification(dependencies) {
 }
 
 function showStep(stepNumber) {
-  // Hide all steps
-  [step1, step2, step3, step4].forEach(step => step.classList.add('hidden'));
+  // Don't hide sections - let them stack vertically
+  // Just ensure the step is visible and scroll to it
+  const steps = [step1, step2, step3, step4];
+  const currentStep = steps[stepNumber - 1];
   
-  // Show current step
-  [step1, step2, step3, step4][stepNumber - 1].classList.remove('hidden');
+  // Remove hidden class from current step
+  if (currentStep) {
+    currentStep.classList.remove('hidden');
+    currentStep.style.display = 'block';
+  }
   
-  // Also show progress indicator and main content for AI flow
+  // Show progress indicator and main content for AI flow
   document.querySelector('.progress-indicator').style.display = 'flex';
   document.querySelector('.main-content').style.display = 'block';
   
   // Update progress indicator
   updateProgress(stepNumber);
   
-  // Smooth scroll to top
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Smooth scroll to the step
+  if (currentStep) {
+    setTimeout(() => {
+      currentStep.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  }
 }
 
 // Update the visual progress dots only (no step visibility change)

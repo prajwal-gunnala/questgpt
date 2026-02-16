@@ -1935,6 +1935,32 @@ body {
   cursor: not-allowed;
 }
 
+.table-update-btn {
+  background: linear-gradient(135deg, #00d9ff 0%, #0099ff 100%);
+  border: none;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 6px;
+  transition: all 0.2s;
+  color: white;
+  margin-right: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0, 217, 255, 0.3);
+}
+
+.table-update-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 217, 255, 0.5);
+  background: linear-gradient(135deg, #00e5ff 0%, #00aaff 100%);
+}
+
+.table-update-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
 /* Old card-based styles (kept for backward compatibility) */
 
 .package-list-placeholder {
