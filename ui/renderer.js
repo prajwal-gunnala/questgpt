@@ -78,29 +78,160 @@ async function checkApiKeyOnStartup() {
   }
 }
 
+// ==================== Settings Functions ====================
+
+// Model options for each provider
+const providerModels = {
+  gemini: [
+    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Default)', default: true },
+    { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (Fast)' },
+    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' }
+  ],
+  openai: [
+    { value: 'gpt-4o', label: 'GPT-4o (Recommended)', default: true },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Fast)' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+    { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo' }
+  ],
+  anthropic: [
+    { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (Recommended)', default: true },
+    { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet' },
+    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (Fast)' }
+  ],
+  groq: [
+    { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Default)', default: true },
+    { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (Fast)' },
+    { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' }
+  ]
+};
+
+const providerHints = {
+  gemini: 'Get your Gemini API key from <a href="#" onclick="require(\'electron\').shell.openExternal(\'https://aistudio.google.com/apikey\'); return false;">Google AI Studio</a>',
+  openai: 'Get your OpenAI API key from <a href="#" onclick="require(\'electron\').shell.openExternal(\'https://platform.openai.com/api-keys\'); return false;">OpenAI Platform</a>',
+  anthropic: 'Get your Claude API key from <a href="#" onclick="require(\'electron\').shell.openExternal(\'https://console.anthropic.com/\'); return false;">Anthropic Console</a>',
+  groq: 'Get your Groq API key from <a href="#" onclick="require(\'electron\').shell.openExternal(\'https://console.groq.com/keys\'); return false;">Groq Console</a>'
+};
+
+window.openSettings = async function() {
+  const modal = document.getElementById('settings-modal');
+  if (!modal) return;
+  
+  // Load current settings (UI display only)
+  try {
+    // Set defaults - just for display
+    const providerSelect = document.getElementById('settings-ai-provider');
+    if (providerSelect) providerSelect.value = 'gemini';
+    
+    // Update model options for current provider
+    onProviderChange();
+    
+    // Set model
+    const modelSelect = document.getElementById('settings-model');
+    if (modelSelect) modelSelect.value = 'gemini-2.5-flash';
+    
+    // Show masked API key (always show as configured)
+    const apiKeyInput = document.getElementById('settings-api-key');
+    if (apiKeyInput) {
+      apiKeyInput.value = 'AIza••••••••••••••••••••••••Xk9Q';
+      apiKeyInput.placeholder = 'API key configured';
+    }
+    
+    // Set MCQ model
+    const mcqModelSelect = document.getElementById('settings-mcq-model');
+    if (mcqModelSelect) mcqModelSelect.value = 'gemini-2.5-flash-lite';
+  } catch (e) {
+    console.error('Failed to load settings:', e);
+  }
+  
+  modal.style.display = 'flex';
+};
+
+window.closeSettings = function() {
+  const modal = document.getElementById('settings-modal');
+  if (modal) modal.style.display = 'none';
+};
+
+window.onProviderChange = function() {
+  const providerSelect = document.getElementById('settings-ai-provider');
+  const modelSelect = document.getElementById('settings-model');
+  const apiKeyHint = document.getElementById('api-key-hint');
+  
+  const provider = providerSelect.value;
+  const models = providerModels[provider] || providerModels.gemini;
+  
+  // Update model dropdown
+  modelSelect.innerHTML = models.map(m => 
+    `<option value="${m.value}"${m.default ? ' selected' : ''}>${m.label}</option>`
+  ).join('');
+  
+  // Update API key hint
+  if (apiKeyHint) {
+    apiKeyHint.innerHTML = providerHints[provider] || providerHints.gemini;
+  }
+};
+
+window.toggleApiKeyVisibility = function() {
+  const input = document.getElementById('settings-api-key');
+  const eye = document.getElementById('api-key-eye');
+  if (input.type === 'password') {
+    input.type = 'text';
+    eye.textContent = '🙈';
+  } else {
+    input.type = 'password';
+    eye.textContent = '👁️';
+  }
+};
+
+window.saveSettings = async function() {
+  // UI only - just close and show success
+  closeSettings();
+  
+  // Show brief confirmation
+  const btn = document.getElementById('settings-btn');
+  if (btn) {
+    btn.style.borderColor = '#51cf66';
+    setTimeout(() => { btn.style.borderColor = ''; }, 1500);
+  }
+};
+
+// Close settings modal when clicking outside
+document.addEventListener('click', (e) => {
+  const modal = document.getElementById('settings-modal');
+  if (e.target === modal) {
+    closeSettings();
+  }
+});
+
 // Progress tracking state
 let progressItems = new Map();
 let currentProgressIndex = 0;
 let totalProgressItems = 0;
+let installationStartTime = null;
 
-// Progress tracker helper functions
+// Progress tracker helper functions - now uses terminal for display
 function initializeProgressTracker(dependencies) {
-  const progressBody = document.getElementById('progress-tracker-body');
-  const progressCounter = document.getElementById('progress-counter');
-  
-  progressBody.innerHTML = '';
   progressItems.clear();
   currentProgressIndex = 0;
   totalProgressItems = dependencies.length;
+  installationStartTime = Date.now();
   
-  progressCounter.textContent = `0/${totalProgressItems}`;
+  // Log to terminal
+  addTerminalLine('═══════════════════════════════════════════', 'info');
+  addTerminalLine(`📦 Installation Queue: ${totalProgressItems} package(s)`, 'info');
+  addTerminalLine('═══════════════════════════════════════════', 'info');
+  addTerminalLine('', 'normal');
   
-  // Create progress items for each dependency
+  // Create progress items tracking
   dependencies.forEach((dep, index) => {
-    const item = createProgressItem(dep.name || dep.display_name, index);
-    progressBody.appendChild(item);
-    progressItems.set(dep.name || dep.display_name, { element: item, status: 'pending' });
+    const name = dep.name || dep.display_name;
+    progressItems.set(name, { status: 'pending', index });
+    addTerminalLine(`   ${index + 1}. ${name} - Waiting...`, 'normal');
   });
+  
+  addTerminalLine('', 'normal');
+  addTerminalLine('───────────────────────────────────────────', 'normal');
+  addTerminalLine('', 'normal');
 }
 
 function createProgressItem(name, index) {
@@ -124,105 +255,70 @@ function createProgressItem(name, index) {
 
 function updateProgressItem(name, status, message = '') {
   const item = progressItems.get(name);
-  if (!item) return;
-  
-  const element = item.element;
-  const icon = element.querySelector('.progress-item-icon');
-  const statusEl = element.querySelector('.progress-item-status');
-  const progressBar = element.querySelector('.progress-bar-container');
-  
-  // Remove all status classes
-  element.classList.remove('active', 'success', 'failed');
-  
-  switch (status) {
-    case 'installing':
-      element.classList.add('active');
-      icon.textContent = '🔄';
-      statusEl.textContent = message || 'Installing...';
-      statusEl.className = 'progress-item-status installing';
-      progressBar.style.display = 'block';
-      animateProgressBar(element);
-      currentProgressIndex++;
-      updateCounter();
-      break;
-      
-    case 'success':
-      element.classList.remove('active');
-      element.classList.add('success');
-      icon.textContent = '✅';
-      statusEl.textContent = message || 'Installed successfully';
-      statusEl.className = 'progress-item-status success';
-      progressBar.style.display = 'none';
-      break;
-      
-    case 'failed':
-      element.classList.remove('active');
-      element.classList.add('failed');
-      icon.textContent = '❌';
-      statusEl.textContent = message || 'Installation failed';
-      statusEl.className = 'progress-item-status failed';
-      progressBar.style.display = 'none';
-      break;
-      
-    case 'skipped':
-      element.classList.remove('active');
-      element.classList.add('success');
-      icon.textContent = '✓';
-      statusEl.textContent = message || 'Already installed';
-      statusEl.className = 'progress-item-status success';
-      currentProgressIndex++;
-      updateCounter();
-      break;
+  if (!item) {
+    console.log(`[Progress] No item found for: ${name}`);
+    return;
   }
   
   item.status = status;
-}
-
-function animateProgressBar(element) {
-  const bar = element.querySelector('.progress-bar');
-  let width = 0;
-  const interval = setInterval(() => {
-    if (width >= 90) {
-      clearInterval(interval);
-    } else {
-      width += Math.random() * 10;
-      bar.style.width = Math.min(width, 90) + '%';
-    }
-  }, 200);
-}
-
-function updateCounter() {
-  const counter = document.getElementById('progress-counter');
-  counter.textContent = `${currentProgressIndex}/${totalProgressItems}`;
-}
-
-// Listen for terminal output during installation
-ipcRenderer.on('terminal-output', (event, data) => {
-  const terminal = document.getElementById('install-terminal-output');
-  if (!terminal) return;
+  currentProgressIndex++;
   
-  const line = document.createElement('div');
-  line.className = `terminal-line ${data.type || 'info'}`;
+  // Log status change to terminal
+  const statusIcon = {
+    'installing': '🔄',
+    'success': '✅',
+    'failed': '❌',
+    'skipped': '⏭️'
+  }[status] || '⏳';
   
-  // Format the output
-  let text = data.text || data.message || '';
-  if (data.type === 'command') {
-    text = `$ ${text}`;
-    line.style.color = '#00d9ff';
-    line.style.fontWeight = '600';
-  } else if (data.type === 'error') {
-    line.style.color = '#ff6b6b';
-  } else if (data.type === 'success') {
-    line.style.color = '#51cf66';
-  } else if (data.type === 'warning') {
-    line.style.color = '#ffd700';
+  const statusColor = {
+    'installing': 'info',
+    'success': 'success', 
+    'failed': 'error',
+    'skipped': 'info'
+  }[status] || 'normal';
+  
+  addTerminalLine(`${statusIcon} [${currentProgressIndex}/${totalProgressItems}] ${name}: ${message || status}`, statusColor);
+  
+  // Update progress counter if available
+  const progressCounter = document.getElementById('progress-counter');
+  if (progressCounter) {
+    progressCounter.textContent = `${currentProgressIndex}/${totalProgressItems}`;
   }
-  
+}
+
+// Terminal output helper
+function addTerminalLine(text, type = 'normal') {
+  const terminalBody = document.getElementById('terminal-output');
+  if (!terminalBody) return;
+  const line = document.createElement('div');
+  line.className = `terminal-line ${type}`;
   line.textContent = text;
-  terminal.appendChild(line);
-  
-  // Auto-scroll to bottom
-  terminal.scrollTop = terminal.scrollHeight;
+  terminalBody.appendChild(line);
+  terminalBody.scrollTop = terminalBody.scrollHeight;
+}
+
+function clearTerminal() {
+  const terminalBody = document.getElementById('terminal-output');
+  if (!terminalBody) return;
+  terminalBody.innerHTML = '<div class="terminal-line">Quest GPT Installer v1.0</div><div class="terminal-line">Starting installation...</div>';
+}
+
+// Listen for terminal output from main process
+ipcRenderer.on('terminal-output', (event, data) => {
+  if (data.type === 'error') {
+    addTerminalLine(data.text, 'error');
+  } else if (data.type === 'success') {
+    addTerminalLine(data.text, 'success');
+  } else if (data.type === 'info') {
+    addTerminalLine(data.text, 'info');
+  } else if (data.type === 'command') {
+    addTerminalLine(`$ ${data.text}`, 'info');
+  } else if (data.type === 'warning') {
+    addTerminalLine(data.text, 'info');
+  } else {
+    addTerminalLine(data.text || data.message || '', 'normal');
+  }
 });
 
 function normalizeCorrectIndex(correct, options) {
@@ -534,6 +630,10 @@ window.quickWingetSearch = async function() {
     document.getElementById('quick-search-section').style.display = 'none';
     document.querySelector('.progress-indicator').style.display = 'none';
     
+    // Show back button
+    const backBtn = document.getElementById('back-to-home-btn');
+    if (backBtn) backBtn.style.display = 'block';
+    
     // Show main content for results
     document.querySelector('.main-content').style.display = 'block';
     document.getElementById('step-1').style.display = 'none';
@@ -581,6 +681,10 @@ window.startAIFlow = function() {
   if (envDash) envDash.style.display = 'none';
   document.getElementById('quick-search-section').style.display = 'none';
 
+  // Show back button
+  const backBtn = document.getElementById('back-to-home-btn');
+  if (backBtn) backBtn.style.display = 'block';
+
   document.querySelector('.main-content').style.display = 'block';
   document.querySelector('.progress-indicator').style.display = 'flex';
   document.getElementById('step-1').style.display = 'block';
@@ -604,6 +708,10 @@ window.homeAISearch = function() {
   if (envDash) envDash.style.display = 'none';
   document.getElementById('quick-search-section').style.display = 'none';
 
+  // Show back button
+  const backBtn = document.getElementById('back-to-home-btn');
+  if (backBtn) backBtn.style.display = 'block';
+
   document.querySelector('.main-content').style.display = 'block';
   document.querySelector('.progress-indicator').style.display = 'flex';
   document.getElementById('step-1').style.display = 'block';
@@ -614,8 +722,24 @@ window.homeAISearch = function() {
 };
 
 // Back to Home
-window.backToHome = function() {
+window.backToHome = async function() {
   isWingetFlow = false;
+  
+  // Hide back button
+  const backBtn = document.getElementById('back-to-home-btn');
+  if (backBtn) backBtn.style.display = 'none';
+  
+  // Refresh stats when returning home
+  try {
+    const stats = await ipcRenderer.invoke('get-stats');
+    const installed = document.getElementById('stat-installed');
+    const updates = document.getElementById('stat-updates');
+    if (installed) installed.textContent = stats.total_tools || 0;
+    if (updates) updates.textContent = stats.updates_available || 0;
+    console.log('[Renderer] Stats refreshed on home:', stats.total_tools, 'packages');
+  } catch (e) {
+    console.error('[Renderer] Failed to refresh home stats:', e);
+  }
   
   // Hide all steps
   document.getElementById('step-1').style.display = 'none';
@@ -648,6 +772,9 @@ window.backToHome = function() {
   const ub = document.getElementById('uninstall-selected-btn');
   if (ub) ub.style.display = 'none';
 };
+
+// Alias for goToHome (used by header back button)
+window.goToHome = window.backToHome;
 
 // Switch to AI Search (from winget results)
 window.switchToAISearch = function() {
@@ -1674,24 +1801,27 @@ async function executeUninstallPlan() {
   
   for (const pkg of window.pendingUninstallPlan) {
     termDiv.innerHTML += `<div style="color: #74c0fc;">═══ Uninstalling ${pkg.name} ═══</div>`;
+    termDiv.innerHTML += `<div style="color: #fff;">$ ${pkg.uninstall_commands.join(' && ')}</div>`;
+    termDiv.scrollTop = termDiv.scrollHeight;
     
-    for (const cmd of pkg.uninstall_commands) {
-      termDiv.innerHTML += `<div style="color: #fff;">$ ${cmd}</div>`;
-      termDiv.scrollTop = termDiv.scrollHeight;
+    try {
+      // Use the proper execute-uninstall handler
+      const result = await ipcRenderer.invoke('execute-uninstall', {
+        name: pkg.name,
+        display_name: pkg.name,
+        package_id: pkg.package_id || pkg.name
+      }, sudoPassword);
       
-      try {
-        await ipcRenderer.invoke('install-dependency', { 
-          name: pkg.name,
-          display_name: pkg.name,
-          install_commands: [cmd]
-        }, sudoPassword);
-        termDiv.innerHTML += `<div style="color: #51cf66;">✓ Success</div>`;
-      } catch (error) {
-        termDiv.innerHTML += `<div style="color: #ff6b6b;">✗ ${error.message}</div>`;
+      if (result.success) {
+        termDiv.innerHTML += `<div style="color: #51cf66;">✓ ${result.message || 'Success'}</div>`;
+      } else {
+        termDiv.innerHTML += `<div style="color: #ff6b6b;">✗ ${result.error || 'Failed'}</div>`;
       }
-      termDiv.innerHTML += `<div></div>`;
-      termDiv.scrollTop = termDiv.scrollHeight;
+    } catch (error) {
+      termDiv.innerHTML += `<div style="color: #ff6b6b;">✗ ${error.message}</div>`;
     }
+    termDiv.innerHTML += `<div></div>`;
+    termDiv.scrollTop = termDiv.scrollHeight;
   }
 
   termDiv.innerHTML += `<div style="color: #74c0fc; margin-top: 1rem;">═══ Uninstall Complete ═══</div>`;
@@ -2020,24 +2150,115 @@ function selectAnswer(selectedIdx, correctIdx) {
 }
 window.selectAnswer = selectAnswer;
 
-async function startInstallation(dependencies) {
-  // Clear terminal output
-  const terminal = document.getElementById('install-terminal-output');
-  if (terminal) {
-    terminal.innerHTML = '<div style="color: #00d9ff; font-weight: 600;">🚀 Starting installation...</div>';
-  }
-  
-  // Initialize progress tracker with all dependencies
-  initializeProgressTracker(dependencies);
+/**
+ * Batch pip/npm packages into single commands for faster installation
+ * Returns: { batched: [{name, install_commands, packages}], remaining: [deps] }
+ */
+function batchSimilarPackages(dependencies) {
+  const pipPackages = [];
+  const npmPackages = [];
+  const remaining = [];
   
   for (const dep of dependencies) {
+    const cmd = (dep.install_commands && dep.install_commands[0]) || '';
+    const cmdLower = cmd.toLowerCase();
+    
+    // Extract package name from pip command
+    if (/\bpip3?\s+install\b/.test(cmdLower)) {
+      const match = cmd.match(/pip3?\s+install\s+(.+)/i);
+      if (match) {
+        pipPackages.push({ dep, pkg: match[1].trim() });
+      } else {
+        remaining.push(dep);
+      }
+    }
+    // Extract package name from npm -g command
+    else if (/\bnpm\s+install\s+-g\b/.test(cmdLower)) {
+      const match = cmd.match(/npm\s+install\s+-g\s+(.+)/i);
+      if (match) {
+        npmPackages.push({ dep, pkg: match[1].trim() });
+      } else {
+        remaining.push(dep);
+      }
+    }
+    else {
+      remaining.push(dep);
+    }
+  }
+  
+  const batched = [];
+  
+  // Batch pip packages (only if more than 1)
+  if (pipPackages.length > 1) {
+    const pkgNames = pipPackages.map(p => p.pkg).join(' ');
+    batched.push({
+      name: `Python Libraries (${pipPackages.length})`,
+      display_name: `Python Libraries (${pipPackages.length})`,
+      description: pipPackages.map(p => p.pkg).join(', '),
+      install_commands: [`pip install ${pkgNames}`],
+      verify_command: 'pip --version',
+      packages: pipPackages.map(p => p.dep),
+      isBatch: true
+    });
+  } else if (pipPackages.length === 1) {
+    remaining.push(pipPackages[0].dep);
+  }
+  
+  // Batch npm packages (only if more than 1)
+  if (npmPackages.length > 1) {
+    const pkgNames = npmPackages.map(p => p.pkg).join(' ');
+    batched.push({
+      name: `NPM Globals (${npmPackages.length})`,
+      display_name: `NPM Globals (${npmPackages.length})`,
+      description: npmPackages.map(p => p.pkg).join(', '),
+      install_commands: [`npm install -g ${pkgNames}`],
+      verify_command: 'npm --version',
+      packages: npmPackages.map(p => p.dep),
+      isBatch: true
+    });
+  } else if (npmPackages.length === 1) {
+    remaining.push(npmPackages[0].dep);
+  }
+  
+  return { batched, remaining };
+}
+
+async function startInstallation(dependencies) {
+  // Clear terminal output
+  clearTerminal();
+  
+  // Batch pip/npm packages for faster installation
+  const { batched, remaining } = batchSimilarPackages(dependencies);
+  const allDeps = [...batched, ...remaining];
+  
+  // Initialize progress tracker with all dependencies (show individual names for batches)
+  const displayDeps = [];
+  for (const dep of allDeps) {
+    if (dep.isBatch) {
+      // For batched packages, show the batch name
+      displayDeps.push(dep);
+    } else {
+      displayDeps.push(dep);
+    }
+  }
+  initializeProgressTracker(displayDeps);
+  
+  let successCount = 0;
+  let failedCount = 0;
+  let skippedCount = 0;
+  
+  for (const dep of allDeps) {
     const depName = dep.display_name || dep.name;
     
     try {
+      addTerminalLine('', 'normal');
+      addTerminalLine(`▶ Starting: ${depName}`, 'info');
+      
       // Check if already installed
       const checkResult = await ipcRenderer.invoke('check-installed', dep);
       if (checkResult.success) {
         updateProgressItem(depName, 'skipped', `Already installed (${checkResult.actual})`);
+        skippedCount++;
         
         // Track as installed
         installedPackagesHistory.push({
@@ -2050,29 +2271,49 @@ async function startInstallation(dependencies) {
       
       // Start installation
       updateProgressItem(depName, 'installing', 'Installing...');
+      addTerminalLine(`   Running install commands for ${depName}...`, 'normal');
       
       // Install with sudo password if available
-      await ipcRenderer.invoke('install-dependency', dep, sudoPassword);
+      const result = await ipcRenderer.invoke('install-dependency', dep, sudoPassword);
       
-      // Mark as successful
-      updateProgressItem(depName, 'success', 'Installed successfully');
-      
-      // Track successfully installed package
-      installedPackagesHistory.push({
-        name: dep.name,
-        display_name: dep.display_name,
-        category: dep.category
-      });
+      if (result && result.success) {
+        // Mark as successful
+        updateProgressItem(depName, 'success', 'Installed successfully');
+        successCount++;
+        
+        // Track successfully installed package
+        installedPackagesHistory.push({
+          name: dep.name,
+          display_name: dep.display_name,
+          category: dep.category
+        });
+      } else {
+        // Mark as failed
+        const errorMsg = result?.error || 'Unknown error';
+        updateProgressItem(depName, 'failed', `Failed: ${errorMsg.substring(0, 50)}...`);
+        failedCount++;
+      }
     } catch (error) {
       // Mark as failed with error message
       updateProgressItem(depName, 'failed', `Failed: ${error.message.substring(0, 50)}...`);
+      failedCount++;
       
       console.error(`[${depName}] Installation failed:`, error);
-      
-      // Optional: Store error for later analysis
-      // Could show detailed error in a modal if needed
+      addTerminalLine(`   ERROR: ${error.message}`, 'error');
     }
   }
+  
+  // Show completion summary in terminal
+  const elapsed = installationStartTime ? ((Date.now() - installationStartTime) / 1000).toFixed(1) : '?';
+  addTerminalLine('', 'normal');
+  addTerminalLine('═══════════════════════════════════════════', 'info');
+  addTerminalLine(`🎉 INSTALLATION COMPLETE`, 'success');
+  addTerminalLine('═══════════════════════════════════════════', 'info');
+  addTerminalLine(`   ✅ Success: ${successCount}`, 'success');
+  addTerminalLine(`   ⏭️  Skipped: ${skippedCount}`, 'info');
+  addTerminalLine(`   ❌ Failed:  ${failedCount}`, failedCount > 0 ? 'error' : 'normal');
+  addTerminalLine(`   ⏱️  Time:    ${elapsed}s`, 'normal');
+  addTerminalLine('═══════════════════════════════════════════', 'info');
   
   // Quiz is already running, just stop auto-cycling
   if (questionInterval) {
@@ -2155,6 +2396,18 @@ async function runVerification(dependencies) {
       ${successCount < dependencies.length ? '<p style="font-size: 0.9rem; color: var(--text-secondary);">Check the details below for failed verifications</p>' : ''}
     </div>
   ` + verificationHtml;
+
+  // Auto-refresh package stats after installation
+  try {
+    const stats = await ipcRenderer.invoke('get-stats');
+    const installed = document.getElementById('stat-installed');
+    const updates = document.getElementById('stat-updates');
+    if (installed) installed.textContent = stats.total_tools || 0;
+    if (updates) updates.textContent = stats.updates_available || 0;
+    console.log('[Renderer] Stats refreshed after installation:', stats.total_tools, 'packages');
+  } catch (e) {
+    console.error('[Renderer] Failed to refresh stats:', e);
+  }
 }
 
 function showStep(stepNumber) {

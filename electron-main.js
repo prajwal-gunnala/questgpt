@@ -259,6 +259,82 @@ ipcMain.handle('save-api-key', async (event, apiKey) => {
   }
 });
 
+// Get settings (including masked API key)
+ipcMain.handle('get-settings', async () => {
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    let config = {};
+    
+    if (fs.existsSync(configPath)) {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+    
+    // Mask API key for display
+    let apiKeyMasked = null;
+    const apiKey = config.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+    if (apiKey && apiKey.length > 8) {
+      apiKeyMasked = apiKey.slice(0, 4) + '••••••••' + apiKey.slice(-4);
+    }
+    
+    return {
+      provider: config.AI_PROVIDER || 'gemini',
+      model: config.AI_MODEL || 'gemini-2.5-flash',
+      mcqModel: config.MCQ_MODEL || 'gemini-2.5-flash-lite',
+      apiKeyMasked
+    };
+  } catch (error) {
+    console.error('Error getting settings:', error);
+    return {
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      mcqModel: 'gemini-2.5-flash-lite',
+      apiKeyMasked: null
+    };
+  }
+});
+
+// Save settings
+ipcMain.handle('save-settings', async (event, settings) => {
+  try {
+    const configPath = path.join(__dirname, 'config.json');
+    let config = {};
+    
+    // Load existing config
+    if (fs.existsSync(configPath)) {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+    
+    // Update settings
+    config.AI_PROVIDER = settings.provider;
+    config.AI_MODEL = settings.model;
+    config.MCQ_MODEL = settings.mcqModel;
+    
+    // Only update API key if a new one was provided
+    if (settings.apiKey) {
+      config.GEMINI_API_KEY = settings.apiKey;
+      process.env.GEMINI_API_KEY = settings.apiKey;
+    }
+    
+    // Save to file
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    
+    // Reinitialize AI modules if API key changed
+    if (settings.apiKey) {
+      geminiInstaller = new GeminiInstaller();
+      errorAnalyzer = new ErrorAnalyzer();
+      uninstaller = new Uninstaller();
+      console.log('[Main] Settings saved and AI modules reinitialized');
+    } else {
+      console.log('[Main] Settings saved (API key unchanged)');
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 
 // Install dependency with progress
 ipcMain.handle('install-dependency', async (event, dependency, sudoPassword) => {
